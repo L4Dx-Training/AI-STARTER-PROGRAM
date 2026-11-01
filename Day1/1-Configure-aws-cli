@@ -3,7 +3,7 @@
 < provde access & secret key when prompted >
 
 Test the AWS access
-#aws get-caller-identity
+#aws sts get-caller-identity
 
 <Must return similar to below>
 {
