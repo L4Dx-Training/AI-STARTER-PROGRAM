@@ -1,1 +1,273 @@
+Hands-on Lab – Implementation Using AWS CLI
+---------------------------------------------
+We will use the existing variables:
+echo $BUCKET
+echo $DIST_ID
+
+
+- $BUCKET – Existing S3 bucket in ap-south-1.
+- $DIST_ID – Existing CloudFront distribution ID.
+
+
+------------
+
+Step 1: Create an IAM role for Lambda
+Why? Lambda needs an IAM execution role to write logs to CloudWatch and invalidate objects in our CloudFront distribution.
+
+Get the AWS account ID:
+#ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+
+Create the trust policy:
+
+#cat <<'EOF' > trust-policy.json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": {"Service": "lambda.amazonaws.com"},
+    "Action": "sts:AssumeRole"
+  }]
+}
+EOF
+
+
+Create the role:
+
+#aws iam create-role \
+  --role-name training-event-lambda-role \
+  --assume-role-policy-document file://trust-policy.json
+
+
+Attach CloudWatch logging permissions:
+
+# aws iam attach-role-policy \
+  --role-name training-event-lambda-role \
+  --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+------------------------------------------------------------------------------------
+Step 2: Grant Lambda permission to invalidate CloudFront
+Why? By default, Lambda cannot perform CloudFront operations. We must explicitly grant the cloudfront:CreateInvalidation permission.
+
+Create the policy:
+#cat <<EOF > cloudfront-policy.json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": "cloudfront:CreateInvalidation",
+    "Resource": "arn:aws:cloudfront::$ACCOUNT_ID:distribution/$DIST_ID"
+  }]
+}
+EOF
+
+
+Attach the policy:
+#aws iam put-role-policy \
+  --role-name training-event-lambda-role \
+  --policy-name CloudFrontInvalidationPolicy \
+  --policy-document file://cloudfront-policy.json
+
+---------------------------------
+Step 3: Create the Lambda function
+Why? Lambda contains the business logic that processes the S3 upload event and requests CloudFront cache invalidation.
+
+Create the Python program:
+
+#cat <<'EOF' > lambda_function.py
+import boto3
+import os
+import uuid
+from urllib.parse import unquote_plus, quote
+
+cloudfront = boto3.client('cloudfront')
+
+def lambda_handler(event, context):
+
+    distribution_id = os.environ['DISTRIBUTION_ID']
+    paths = set()
+
+    for record in event.get('Records', []):
+        key = unquote_plus(record['s3']['object']['key'])
+
+        path = '/' + quote(key, safe='/-_.~')
+        paths.add(path)
+
+        # The root URL also serves index.html
+        if key == 'index.html':
+            paths.add('/')
+
+    if not paths:
+        return {'message': 'No objects to invalidate'}
+
+    response = cloudfront.create_invalidation(
+        DistributionId=distribution_id,
+        InvalidationBatch={
+            'Paths': {
+                'Quantity': len(paths),
+                'Items': sorted(paths)
+            },
+            'CallerReference': str(uuid.uuid4())
+        }
+    )
+
+    return {
+        'status': 'success',
+        'invalidation_id': response['Invalidation']['Id'],
+        'paths': sorted(paths)
+    }
+EOF
+
+
+Package the function:
+#zip function.zip lambda_function.py
+
+
+Create the Lambda function:
+#ROLE_ARN=$(aws iam get-role \
+  --role-name training-event-lambda-role \
+  --query 'Role.Arn' --output text)
+
+sleep 10
+
+aws lambda create-function \
+  --function-name training-s3-cloudfront-invalidation \
+  --runtime python3.13 \
+  --role "$ROLE_ARN" \
+  --handler lambda_function.lambda_handler \
+  --zip-file fileb://function.zip \
+  --timeout 30 \
+  --memory-size 128 \
+  --environment "Variables={DISTRIBUTION_ID=$DIST_ID}" \
+  --region ap-south-1
+
+---------------------------------------------------
+
+Step 4: Allow S3 to invoke Lambda
+Why? S3 must be authorized to invoke our Lambda function whenever an object is uploaded.
+
+#LAMBDA_ARN=$(aws lambda get-function \
+  --function-name training-s3-cloudfront-invalidation \
+  --region ap-south-1 \
+  --query 'Configuration.FunctionArn' \
+  --output text)
+
+
+Grant invocation permission:
+#aws lambda add-permission \
+  --function-name training-s3-cloudfront-invalidation \
+  --statement-id AllowS3Invocation \
+  --action lambda:InvokeFunction \
+  --principal s3.amazonaws.com \
+  --source-arn arn:aws:s3:::$BUCKET \
+  --source-account $ACCOUNT_ID \
+  --region ap-south-1
+
+------------------------------------------------------
+
+Step 5: Configure S3 Event Notification
+Why? This is the actual event-driven integration. We configure S3 to generate an event whenever a new object is created or an existing object is overwritten.
+
+
+#cat <<EOF > notification.json
+{
+  "LambdaFunctionConfigurations": [{
+    "Id": "S3UploadTrigger",
+    "LambdaFunctionArn": "$LAMBDA_ARN",
+    "Events": ["s3:ObjectCreated:*"]
+  }]
+}
+EOF
+
+
+Apply the notification configuration:
+#aws s3api put-bucket-notification-configuration \
+  --bucket "$BUCKET" \
+  --notification-configuration file://notification.json \
+  --region ap-south-1
+
+-------------------------------------------------------
+Step 6: Test the Event-Driven Application
+Why? We need to verify that uploading a file generates an S3 event, invokes Lambda and creates a CloudFront invalidation.
+
+
+Upload an updated index.html:
+#echo "<h1>Updated Website Version</h1>" >> index.html
+
+#aws s3 cp index.html s3://$BUCKET/
+
+--------------------------------------------------------
+
+Step 7: Verify Lambda execution
+Why? We want to confirm that S3 successfully triggered Lambda.
+
+#aws logs filter-log-events \
+  --log-group-name /aws/lambda/training-s3-cloudfront-invalidation \
+  --start-time $(($(date +%s)*1000 - 300000)) \
+  --region ap-south-1
+
+
+--------------------------------------------------------
+Step 8 : Check website for new content
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
