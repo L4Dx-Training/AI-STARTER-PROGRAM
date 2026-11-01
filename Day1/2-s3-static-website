@@ -79,20 +79,126 @@ Get the website URL
 #echo "http://$BUCKET.s3-website.ap-south-1.amazonaws.com"
 
 
+-----------------------------------------------------------
+Cloudfront Distribution
+-----------------------------------------------------------
+Step 1: Create Origin Access Control (OAC)
+Why? OAC allows CloudFront to securely access objects in a private S3 bucket without making the bucket publicly accessible.
+
+
+#OAC_ID=$(aws cloudfront create-origin-access-control \
+  --origin-access-control-config '{
+    "Name": "training-oac",
+    "Description": "OAC for training S3 bucket",
+    "SigningProtocol": "sigv4",
+    "SigningBehavior": "always",
+    "OriginAccessControlOriginType": "s3"
+  }' \
+  --query 'OriginAccessControl.Id' --output text)
+
+#echo $OAC_ID
 
 
 
+Step 2: Create distribution configuration
+Why? This JSON file defines how CloudFront should behave, including the S3 origin, caching, HTTPS redirection and default homepage.
+
+#cat <<EOF > distribution-config.json
+{
+  "CallerReference": "training-$(date +%s)",
+  "Comment": "Training Website",
+  "Enabled": true,
+  "DefaultRootObject": "index.html",
+  "PriceClass": "PriceClass_100",
+  "Origins": {
+    "Quantity": 1,
+    "Items": [{
+      "Id": "S3-origin",
+      "DomainName": "$BUCKET.s3.ap-south-1.amazonaws.com",
+      "S3OriginConfig": {
+        "OriginAccessIdentity": ""
+      },
+      "OriginAccessControlId": "$OAC_ID"
+    }]
+  },
+  "DefaultCacheBehavior": {
+    "TargetOriginId": "S3-origin",
+    "ViewerProtocolPolicy": "redirect-to-https",
+    "AllowedMethods": {
+      "Quantity": 2,
+      "Items": ["GET", "HEAD"],
+      "CachedMethods": {
+        "Quantity": 2,
+        "Items": ["GET", "HEAD"]
+      }
+    },
+    "ForwardedValues": {
+      "QueryString": false,
+      "Cookies": {"Forward": "none"}
+    },
+    "MinTTL": 0,
+    "DefaultTTL": 86400,
+    "MaxTTL": 31536000,
+    "Compress": true
+  }
+}
+EOF
+
+Step 3: Create CloudFront distribution
+Why? This creates the actual CloudFront distribution using the configuration defined in Step 2.
 
 
+#DIST_ID=$(aws cloudfront create-distribution \
+  --distribution-config file://distribution-config.json \
+  --query 'Distribution.Id' --output text)
+
+#echo $DIST_ID
+
+Step 4: Retrieve distribution ARN
+Why? We need the distribution ARN to identify which CloudFront distribution is authorized to access our S3 bucket.
+
+#DIST_ARN=$(aws cloudfront get-distribution \
+  --id $DIST_ID \
+  --query 'Distribution.ARN' --output text)
+
+#echo $DIST_ARN
+
+Step 5: Configure S3 bucket policy
+Why? OAC authenticates CloudFront requests, but S3 also needs an IAM bucket policy granting that specific distribution permission to read objects.
+
+#cat <<EOF > bucket-policy.json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Sid": "AllowCloudFrontAccess",
+    "Effect": "Allow",
+    "Principal": {"Service": "cloudfront.amazonaws.com"},
+    "Action": "s3:GetObject",
+    "Resource": "arn:aws:s3:::$BUCKET/*",
+    "Condition": {
+      "StringEquals": {
+        "AWS:SourceArn": "$DIST_ARN"
+      }
+    }
+  }]
+}
+EOF
+
+#aws s3api put-bucket-policy \
+  --bucket $BUCKET \
+  --policy file://bucket-policy.json
+
+Step 6: Wait for deployment
+Why? CloudFront needs time to propagate the distribution configuration across its global edge locations.
+
+#aws cloudfront wait distribution-deployed --id $DIST_ID
 
 
+Step 7: Get the CloudFront URL
+Why? This retrieves the automatically generated CloudFront domain name through which users can access our frontend application.
+#DOMAIN=$(aws cloudfront get-distribution \
+  --id $DIST_ID \
+  --query 'Distribution.DomainName' --output text)
 
-
-
-
-
-
-
-
-
+echo "Website URL: https://$DOMAIN"
 
