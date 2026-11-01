@@ -1,0 +1,98 @@
+Create an s3 bucket .
+Since s3 bucket useds global unique name, i have appended the date in epoch format as part of bucket name.
+
+#aws s3api create-bucket \
+  --bucket training-$(date +%s) \
+  --region ap-south-1 \
+  --create-bucket-configuration LocationConstraint=ap-south-1
+
+  List the buckets available
+  #aws s3 ls
+  Identify the bucket we craeted from name
+  Create a file named index.html in your desktop
+  -----------------------------------------------
+  cat <<EOF > index.html
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AWS S3 Static Website</title>
+</head>
+<body>
+    <h1>Welcome to AWS Training!</h1>
+    <p>This website is hosted using Amazon S3 Static Website Hosting.</p>
+</body>
+</html>
+EOF
+
+----------------------------------------------------
+
+Upload this file on S3
+#aws s3 cp index.html s3://<bucket-name>/
+
+
+Verify the upload
+#aws s3 ls s3://<bucket-name>/
+
+verify the file content
+
+#aws s3 cp s3://<bucket-name>/index.html -
+
+------------------------------------------------------
+
+Enable static website hosting
+------------------------------------------------------
+#BUCKET=<Name of bucket>
+#aws s3 website s3://$BUCKET/ --index-document index.html --error-document index.html
+
+
+Disable Block Public Access (required for public website access)
+#aws s3api put-public-access-block \
+  --bucket $BUCKET \
+  --public-access-block-configuration \
+  "BlockPublicAcls=false,IgnorePublicAcls=false,BlockPublicPolicy=false,RestrictPublicBuckets=false"
+
+ Add bucket policy to allow public read access
+a. create the policy file
+
+#cat <<EOF > bucket-policy.json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "PublicReadGetObject",
+      "Effect": "Allow",
+      "Principal": "*",
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::$BUCKET/*"
+    }
+  ]
+}
+EOF
+
+b. apply the policy
+
+aws s3api put-bucket-policy \
+  --bucket $BUCKET \
+  --policy file://bucket-policy.json
+  
+Get the website URL
+#echo "http://$BUCKET.s3-website.ap-south-1.amazonaws.com"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
