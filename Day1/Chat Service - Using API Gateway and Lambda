@@ -1,0 +1,392 @@
+Step 1: Create Lambda execution role
+Why? Lambda needs an IAM role to execute and write its execution logs to CloudWatch.
+cat <<'EOF' > trust-policy.json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": {
+      "Service": "lambda.amazonaws.com"
+    },
+    "Action": "sts:AssumeRole"
+  }]
+}
+EOF
+
+
+Create the role:
+aws iam create-role \
+  --role-name training-chat-lambda-role \
+  --assume-role-policy-document file://trust-policy.json
+
+
+Attach CloudWatch logging permissions:
+aws iam attach-role-policy \
+  --role-name training-chat-lambda-role \
+  --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+
+Step 2: Create Lambda function
+Why? Lambda acts as our backend processing engine. It receives the user's message, counts words and letters, and prepares a response.
+
+Create the Python code:
+cat <<'EOF' > lambda_function.py
+import json
+
+def lambda_handler(event, context):
+
+    body = json.loads(event.get('body') or '{}')
+    message = body.get('message', '')
+
+    words = len(message.split())
+    letters = sum(1 for char in message if char.isalpha())
+
+    response = {
+        "words": words,
+        "letters": letters,
+        "reply": f"Your message contains {words} words and {letters} letters."
+    }
+
+    return {
+        "statusCode": 200,
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "body": json.dumps(response)
+    }
+EOF
+
+
+Create a deployment package:
+zip function.zip lambda_function.py
+
+
+Create the Lambda function:
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+ROLE_ARN="arn:aws:iam::$ACCOUNT_ID:role/training-chat-lambda-role"
+
+sleep 10
+
+aws lambda create-function \
+  --function-name training-chat-engine \
+  --runtime python3.13 \
+  --role "$ROLE_ARN" \
+  --handler lambda_function.lambda_handler \
+  --zip-file fileb://function.zip \
+  --timeout 15 \
+  --memory-size 128 \
+  --region ap-south-1
+
+
+Step 3: Create API Gateway HTTP API
+Why? API Gateway provides an HTTP endpoint through which the frontend can communicate with Lambda. We will use an HTTP API because it is simple and cost-effective for this demonstration.
+
+Create the API:
+API_ID=$(aws apigatewayv2 create-api \
+  --name training-chat-api \
+  --protocol-type HTTP \
+  --cors-configuration '{"AllowOrigins":["*"],"AllowMethods":["POST","OPTIONS"],"AllowHeaders":["content-type"]}' \
+  --region ap-south-1 \
+  --query 'ApiId' \
+  --output text)
+
+echo $API_ID
+
+
+Step 4: Integrate API Gateway with Lambda
+Why? This establishes the connection between API Gateway and our Lambda backend. When API Gateway receives a request, it forwards the request to Lambda.
+
+Get Lambda ARN:
+LAMBDA_ARN=$(aws lambda get-function \
+  --function-name training-chat-engine \
+  --region ap-south-1 \
+  --query 'Configuration.FunctionArn' \
+  --output text)
+
+
+Create the integration:
+INTEGRATION_ID=$(aws apigatewayv2 create-integration \
+  --api-id "$API_ID" \
+  --integration-type AWS_PROXY \
+  --integration-uri "$LAMBDA_ARN" \
+  --payload-format-version 2.0 \
+  --region ap-south-1 \
+  --query 'IntegrationId' \
+  --output text)
+
+echo $INTEGRATION_ID
+
+
+Step 5: Create API route
+Why? A route defines the HTTP method and path through which users access the backend functionality.
+
+We will create a POST endpoint:
+POST /chat
+
+
+Create the route:
+aws apigatewayv2 create-route \
+  --api-id "$API_ID" \
+  --route-key 'POST /chat' \
+  --target "integrations/$INTEGRATION_ID" \
+  --region ap-south-1
+
+
+Step 6: Allow API Gateway to invoke Lambda
+Why? API Gateway needs explicit permission to invoke our Lambda function.
+aws lambda add-permission \
+  --function-name training-chat-engine \
+  --statement-id AllowAPIGatewayInvocation \
+  --action lambda:InvokeFunction \
+  --principal apigateway.amazonaws.com \
+  --source-arn "arn:aws:execute-api:ap-south-1:$ACCOUNT_ID:$API_ID/*/POST/chat" \
+  --region ap-south-1
+
+
+Step 7: Deploy the API
+Why? Deployment makes the API route accessible through an HTTPS endpoint.
+aws apigatewayv2 create-stage \
+  --api-id "$API_ID" \
+  --stage-name '$default' \
+  --auto-deploy \
+  --region ap-south-1
+
+
+Get the API URL:
+API_URL=$(aws apigatewayv2 get-api \
+  --api-id "$API_ID" \
+  --region ap-south-1 \
+  --query 'ApiEndpoint' \
+  --output text)
+
+echo $API_URL
+
+
+Your API endpoint will look similar to:
+https://xxxxxxxx.execute-api.ap-south-1.amazonaws.com
+
+
+The actual chat endpoint is:
+https://xxxxxxxx.execute-api.ap-south-1.amazonaws.com/chat
+
+
+Step 8: Test API Gateway and Lambda independently
+Why? Before connecting the frontend, we should verify that the backend integration works.
+curl -X POST "$API_URL/chat" \
+  -H "Content-Type: application/json" \
+  -d '{"message":"Welcome to AWS serverless training"}'
+
+
+Expected response:
+{
+  "words": 5,
+  "letters": 31,
+  "reply": "Your message contains 5 words and 31 letters."
+}
+
+
+If this works, API Gateway and Lambda are successfully integrated.
+
+5. Build the Chat Frontend
+Step 9: Create chat.html
+Why? This is the user interface of our chat application. It accepts messages, sends them to API Gateway using JavaScript fetch(), and displays the response returned by Lambda.
+
+Create the frontend:
+cat <<'EOF' > chat.html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AWS Serverless Chat</title>
+<style>
+* { box-sizing: border-box; }
+
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: linear-gradient(135deg, #111827, #1e3a5f);
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    color: white;
+}
+
+.chat {
+    width: 95%;
+    max-width: 600px;
+    height: 85vh;
+    background: #ffffff;
+    border-radius: 18px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    color: #1f2937;
+    box-shadow: 0 15px 50px #0005;
+}
+
+.header {
+    background: #172554;
+    color: white;
+    padding: 22px;
+}
+
+.header h2 { margin: 0 0 6px; }
+.header p { margin: 0; font-size: 13px; color: #bfdbfe; }
+
+.messages {
+    flex: 1;
+    padding: 20px;
+    overflow-y: auto;
+    background: #f8fafc;
+}
+
+.message {
+    padding: 13px 16px;
+    border-radius: 14px;
+    margin-bottom: 14px;
+    max-width: 85%;
+    line-height: 1.5;
+    font-size: 14px;
+}
+
+.bot {
+    background: #e2e8f0;
+    align-self: flex-start;
+}
+
+.user {
+    background: #2563eb;
+    color: white;
+    margin-left: auto;
+}
+
+.input-area {
+    display: flex;
+    gap: 10px;
+    padding: 16px;
+    border-top: 1px solid #e5e7eb;
+}
+
+input {
+    flex: 1;
+    padding: 14px;
+    border: 1px solid #cbd5e1;
+    border-radius: 10px;
+    outline: none;
+    font-size: 14px;
+}
+
+button {
+    background: #2563eb;
+    color: white;
+    border: none;
+    border-radius: 10px;
+    padding: 0 22px;
+    cursor: pointer;
+    font-weight: bold;
+}
+
+button:disabled { opacity: 0.5; }
+
+</style>
+</head>
+
+<body>
+
+<div class="chat">
+    <div class="header">
+        <h2>Cloud Chat Assistant</h2>
+        <p>Powered by AWS API Gateway and Lambda</p>
+    </div>
+
+    <div class="messages" id="messages">
+        <div class="message bot">
+            Hello! Welcome to AWS Serverless Chat.
+            Send me a message and I will count your words and letters.
+        </div>
+    </div>
+
+    <div class="input-area">
+        <input id="messageInput"
+               placeholder="Type your message here..."
+               onkeydown="if(event.key==='Enter') sendMessage()">
+        <button id="sendButton" onclick="sendMessage()">Send</button>
+    </div>
+</div>
+
+<script>
+const API_URL = "API_ENDPOINT_PLACEHOLDER";
+
+function addMessage(text, type) {
+    const box = document.getElementById("messages");
+    const msg = document.createElement("div");
+    msg.className = "message " + type;
+    msg.textContent = text;
+    box.appendChild(msg);
+    box.scrollTop = box.scrollHeight;
+}
+
+async function sendMessage() {
+    const input = document.getElementById("messageInput");
+    const button = document.getElementById("sendButton");
+    const message = input.value.trim();
+
+    if (!message) return;
+
+    addMessage(message, "user");
+    input.value = "";
+    button.disabled = true;
+
+    try {
+        const response = await fetch(API_URL + "/chat", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ message: message })
+        });
+
+        if (!response.ok) {
+            throw new Error("API request failed: " + response.status);
+        }
+
+        const data = await response.json();
+        addMessage(data.reply, "bot");
+
+    } catch (error) {
+        addMessage("Sorry, something went wrong. Please try again.", "bot");
+        console.error(error);
+    } finally {
+        button.disabled = false;
+        input.focus();
+    }
+}
+</script>
+
+</body>
+</html>
+EOF
+
+
+Replace the API placeholder with your actual API endpoint:
+sed -i '' "s|API_ENDPOINT_PLACEHOLDER|$API_URL|" chat.html
+
+
+Step 10: Upload chat.html to S3
+Why? S3 will host the frontend application. CloudFront will distribute the chat interface to users.
+aws s3 cp chat.html s3://$BUCKET/chat.html \
+  --content-type text/html
+
+
+Since we previously configured S3 upload events to trigger Lambda, uploading chat.html will also automatically trigger the CloudFront invalidation function.
+Step 11: Access the Chat Application
+Get your CloudFront domain:
+DOMAIN=$(aws cloudfront get-distribution \
+  --id $DIST_ID \
+  --query 'Distribution.DomainName' \
+  --output text)
+
+echo "https://$DOMAIN/chat.html"
