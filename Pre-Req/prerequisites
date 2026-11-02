@@ -1,1 +1,311 @@
 
+
+AI STARTUP TRAINING
+Candidate Prerequisite &
+Environment Readiness Checklist
+Step-by-step setup • Purpose of each requirement • Verification tests
+Candidate name
+________________________________________
+Training batch / start date
+________________________________________
+Laptop operating system
+☐ Windows  ☐ macOS  ☐ Linux
+AWS Region assigned by trainer
+________________________________________
+
+
+Complete every required section and pass its verification test before the first practical session.
+
+1. Training setup model and important rules	3
+2. Laptop, browser, and internet	3
+3. Create your AWS account	3
+4. Secure the root user and configure a budget	4
+4A. Enable root-user MFA	4
+4B. Create a monthly AWS budget	4
+5. Create one IAM admin user with console password	4
+6. Enable MFA for the IAM admin user	5
+7. Create an access key for AWS CLI	5
+8. Install AWS CLI v2 and configure credentials	5
+9. Install Git and Git Bash / Terminal	6
+10. Create a GitHub account and test Git push	6
+11. Install Visual Studio Code	7
+12. Install Python and create a virtual environment	7
+13. Install AWS SAM CLI	7
+14. Create a Postman account and install desktop app	8
+15. Create a Pinecone account and install the SDK	8
+16. Secrets and repository hygiene	8
+17. Optional tools — install only if the trainer requests them	9
+18. Final readiness sign-off	9
+19. Official reference links	9
+
+1. Training setup model and important rules
+Each candidate must create and use their own AWS account. Inside that account, each candidate will create one IAM user with the AWS-managed AdministratorAccess policy, enable console access, and create an access key for AWS CLI exercises. Do not use an IAM Identity Center user supplied by the trainer.
+☐ Create an individual AWS account that you own and are authorized to use. Do not use an employer's or another person's account.
+☐ The account root user is for account setup and tasks that require root. Use the IAM admin user for normal training tasks.
+☐ Enable MFA on both the root user and IAM admin user wherever supported. Never create root access keys.
+☐ AdministratorAccess is broad: it can create, modify, and delete most resources and may cause charges. Follow the trainer's service and spending guidance.
+☐ Never share passwords, secret access keys, MFA codes, recovery codes, or API keys. Never commit secrets to GitHub.
+☐ AWS console labels and signup flows may differ. If the AWS signup flow creates a simplified project-only experience that does not support IAM console users, use the full/advanced AWS account signup experience or follow AWS's current official guidance for enabling it.  
+AWS account signup options: https://docs.aws.amazon.com/accounts/latest/reference/getting-started.html
+AWS IAM user creation guidance: https://docs.aws.amazon.com/IAM/latest/UserGuide/id_users_create.html
+2. Laptop, browser, and internet
+Purpose: all setup and practical exercises run from your laptop.
+Use a laptop where you can install applications, or arrange installation permission before training.
+Update your operating system and install a current browser such as Chrome, Edge, Firefox, or Safari.
+Check that your internet connection can open HTTPS websites and download installers.
+Keep approximately 10 GB of free disk space available for developer tools, Python packages, and project files.
+Verification test: open the official GitHub, AWS, Postman, Pinecone, Python, and VS Code websites in your browser.
+☐ ☐ Browser and internet work
+☐ ☐ Software installation permissions confirmed
+☐ ☐ Free disk space checked
+3. Create your AWS account
+Purpose: your personal AWS training account is where you will create and test cloud resources. You are responsible for monitoring its usage and charges.
+Open the official AWS account signup page and choose the full/advanced signup path if offered; the course requires classic IAM user console access and AWS services used in the training.
+Enter an email address you control. Verify the email using the code sent by AWS.
+Create a strong, unique root-user password and store it securely.
+Enter the requested account/contact details and complete phone or identity verification.
+Complete billing/payment details if AWS requires them for your signup path. Review the plan and any Free Tier or credit terms shown during signup.
+Wait for AWS to confirm account activation, then sign in as the root user once to finish security setup.
+Verification test: you can sign in to the AWS Management Console as the root user and open the console home page.
+AWS account creation and activation: https://docs.aws.amazon.com/accounts/latest/reference/getting-started.html
+AWS account creation page: https://aws.amazon.com/resources/create-account/
+4. Secure the root user and configure a budget
+Purpose: root access can control the entire account. MFA and budget alerts reduce avoidable risk, but budget alerts are not a hard spending cap.
+4A. Enable root-user MFA
+Sign in to the AWS console using the root email address.
+Open the account menu and choose Security credentials (or the current equivalent).
+Find Multi-factor authentication (MFA) and choose Assign MFA device.
+Follow the wizard to configure an authenticator app or another supported MFA device.
+Sign out and sign back in to verify the MFA challenge works. Store recovery information securely.
+Test: root sign-in requires the configured MFA method.
+Root-user security best practices: https://docs.aws.amazon.com/IAM/latest/UserGuide/root-user-best-practices.html
+4B. Create a monthly AWS budget
+Open Billing and Cost Management in the AWS console.
+Open Budgets and choose Create budget.
+Choose a monthly cost budget or the closest available cost-budget template.
+Name it (for example, AI-Training-Monthly-Budget) and set a low amount you can afford. If unsure, ask the trainer for the suggested amount before creating resources.
+Configure email alerts at suitable thresholds, such as 50%, 80%, and 100%, if available. Use an email address you check regularly.
+Create the budget and confirm it appears in the Budgets list.
+Verification test: the budget is visible and notification recipients are correct. Remember: AWS Budgets sends alerts; it does not automatically stop resources or guarantee a spending limit.
+AWS Budgets guide: https://docs.aws.amazon.com/cost-management/latest/userguide/budgets-managing-costs.html
+5. Create one IAM admin user with console password
+Purpose: use a separate IAM identity for day-to-day exercises instead of signing in as root. The user requested for this training must have AdministratorAccess within the candidate's own training account.
+Important: AWS recommends temporary/federated credentials for many human-user scenarios. This training checklist follows the specified IAM-user lab model. Use it only in your own training account and protect it carefully.
+Sign in to the AWS console as the root user for initial setup, then open the IAM service.
+In the IAM navigation pane, choose Users, then Create user.
+Enter a clear username, for example ai-training-admin. Do not use another candidate's credentials.
+Enable the option to provide user access to the AWS Management Console. Select the IAM user option if the wizard asks which type of user to create.
+Set a strong, unique console password. If AWS offers a change-password-at-first-sign-in option, enable it unless the training instructions require otherwise.
+On the permissions step, choose Attach policies directly and search for the AWS-managed policy named AdministratorAccess. Select it.
+Review the permissions and username, then create the user.
+Save the IAM sign-in URL/account sign-in details and username in a secure password manager. If AWS displays a one-time password or download file, store it securely and do not email or share it.
+Verification test: sign out of root and sign in through the IAM user sign-in URL using the IAM username and console password. Complete any password-change or MFA setup prompts.
+Security note: do not attach AdministratorAccess to the root user (root already has full access). Attach it to the new IAM user only.
+Create an IAM user in your AWS account: https://docs.aws.amazon.com/IAM/latest/UserGuide/id_users_create.html
+AWS-managed AdministratorAccess policy: https://docs.aws.amazon.com/aws-managed-policy/latest/reference/AdministratorAccess.html
+6. Enable MFA for the IAM admin user
+Purpose: MFA adds a second verification step if the password is compromised.
+Sign in as the new IAM admin user.
+Open the account/security credentials area and locate MFA.
+Choose Assign MFA device and follow the on-screen steps for an authenticator app or another supported device.
+Sign out and sign back in to test MFA.
+Verification test: console sign-in requires the IAM username/password and the configured MFA step.
+IAM user MFA instructions: https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_mfa_enable_virtual.html
+7. Create an access key for AWS CLI
+Purpose: the AWS CLI uses programmatic credentials to call AWS APIs from your laptop. The access key consists of an Access key ID and a Secret access key.
+Sign in as the IAM admin user and open IAM → Users → your ai-training-admin user.
+Open Security credentials, find Access keys, and choose Create access key.
+Choose Command Line Interface (CLI) as the use case if the wizard offers that choice. Review the warning and acknowledge the intended training use.
+Create the access key. Copy the Access key ID and Secret access key into a secure password manager or the approved local credential setup. The secret is shown only at creation time.
+Do not paste the key into a Python file, terminal command, shared document, email, chat, screenshot, or GitHub repository.
+If you lose or expose the secret, deactivate/delete that key and create a replacement. Do not create multiple keys unless there is a clear need.
+Verification test: the key is created and shown as active in the user's Security credentials page. The next section tests whether the CLI can use it.
+Important: long-lived access keys are sensitive credentials. For this course, use them only for the required lab and remove them when no longer needed.
+AWS IAM access-key best practices: https://docs.aws.amazon.com/IAM/latest/UserGuide/securing_access-keys.html
+Create access keys for an IAM user: https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_access-keys.html
+8. Install AWS CLI v2 and configure credentials
+Purpose: AWS CLI allows you to verify identity and run AWS commands without relying only on the browser.
+Download and install AWS CLI version 2 for your operating system from the official AWS instructions.
+Close and reopen your terminal (Windows: Git Bash or PowerShell; macOS/Linux: Terminal).
+Check the installation by running the command below.
+Configure a named profile called training. Enter the IAM user's Access key ID and Secret access key only when prompted interactively. Do not put secrets in the command itself.
+Set the default region to the one specified by the trainer (for example, ap-south-1 only if the trainer selects Mumbai) and choose json as the output format.
+aws --version
+aws configure --profile training
+Then verify identity:
+aws sts get-caller-identity --profile training
+Verification test: aws --version prints AWS CLI v2; get-caller-identity returns JSON containing Account and Arn. Confirm the account ID is your own account and the ARN names your IAM user. Do not post this output publicly.
+AWS CLI installation: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html
+AWS CLI configuration: https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-files.html
+9. Install Git and Git Bash / Terminal
+Purpose: Git records source-code changes. Git Bash provides a Unix-like command-line shell on Windows.
+Windows: download and install Git for Windows; Git Bash is included.
+macOS: install Git through Xcode Command Line Tools or the official Git distribution.
+Linux: install Git using the operating system's package manager.
+Open Git Bash or Terminal and set the name and email that should appear on your commits.
+git --version
+git config --global user.name "Your Name"
+git config --global user.email "your-verified-email@example.com"
+Verification test: git --version prints a version and the configuration commands complete without error.
+Git downloads: https://git-scm.com/downloads
+Set up Git: https://docs.github.com/en/get-started/git-basics/set-up-git
+10. Create a GitHub account and test Git push
+Purpose: GitHub hosts the training repository and lets you submit or share code. Keep the repository private unless the trainer requests a public one.
+Create a GitHub account and verify the email address.
+Enable two-factor authentication (2FA).
+Create a repository named ai-training-practice. Do not initialize it with files if you plan to use the exact first-push test below, or clone the repository if it already contains files.
+Use GitHub's browser-based sign-in or supported credential manager when Git prompts for authentication. Your GitHub account password is not normally accepted as a Git HTTPS password.
+If you created an empty repository, run the following commands in Git Bash/Terminal:
+mkdir ai-training-practice
+cd ai-training-practice
+echo "AI training setup complete" > readiness.txt
+git init
+git add readiness.txt
+git commit -m "Add readiness test"
+git branch -M main
+git remote add origin https://github.com/YOUR-USERNAME/ai-training-practice.git
+git push -u origin main
+Replace YOUR-USERNAME with your GitHub username. If you already cloned the repository, do not run git init or add the remote again; create a file, commit, and push from the cloned folder.
+Verification test: readiness.txt appears in the repository on GitHub.
+Create a GitHub account: https://docs.github.com/en/get-started/start-your-journey/creating-an-account-on-github
+GitHub 2FA: https://docs.github.com/en/authentication/securing-your-account-with-two-factor-authentication-2fa
+11. Install Visual Studio Code
+Purpose: code editor for Python scripts, configuration files, and AWS SAM projects.
+Download and install Visual Studio Code for your operating system.
+Open VS Code and install the Python extension published by Microsoft.
+Open your ai-training-practice folder in VS Code.
+Verification test: create a file named hello.py and enter: print('Hello, AI training').
+python hello.py
+Expected result: the terminal prints Hello, AI training. If your system uses python3, run python3 hello.py.
+VS Code download: https://code.visualstudio.com/Download
+Python extension: https://marketplace.visualstudio.com/items?itemName=ms-python.python
+12. Install Python and create a virtual environment
+Purpose: Python will be used for AI application logic, API integration, Lambda functions, and Pinecone SDK exercises. Follow the trainer's specified version if one is provided.
+Download and install a current Python 3 release compatible with the course. On Windows, enable Add Python to PATH if the installer offers it.
+Open a new terminal and check Python and pip versions.
+In your project folder, create a virtual environment named .venv.
+Activate the environment using the command for your shell below.
+python --version
+python -m pip --version
+python -m venv .venv
+
+# Windows PowerShell
+.\.venv\Scripts\Activate.ps1
+
+# Windows Git Bash
+source .venv/Scripts/activate
+
+# macOS/Linux
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -c "print(\"Python environment is ready\")"
+Verification test: Python and pip versions print, and the final command prints Python environment is ready. On some systems, use python3 instead of python.
+Python downloads: https://www.python.org/downloads/
+13. Install AWS SAM CLI
+Purpose: AWS Serverless Application Model (SAM) CLI builds, validates, tests, and deploys serverless applications described in SAM templates.
+Install AWS SAM CLI using the official instructions for your operating system. Install AWS CLI first.
+Open a new terminal and run the version and help checks.
+sam --version
+sam validate --help
+Verification test: sam --version prints a version; sam validate --help displays usage information.
+Optional for local Lambda/container tests: install Docker Desktop, start it, and run:
+docker --version
+docker ps
+Docker is not required for every SAM exercise, but container-based local testing requires a working Docker environment.
+SAM CLI installation: https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam-cli.html
+SAM prerequisites: https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/prerequisites.html
+Docker Desktop: https://www.docker.com/products/docker-desktop/
+14. Create a Postman account and install desktop app
+Purpose: Postman is used to test HTTP APIs, send requests, and inspect status codes and JSON responses.
+Create a Postman account and verify your email, or sign in to an existing account.
+Download and install the Postman desktop application.
+Open Postman, sign in, and create a collection named AI Training API Tests.
+Create a GET request to the public Echo endpoint and click Send.
+GET https://postman-echo.com/get
+Verification test: expect a successful response (normally HTTP 200) with JSON describing the request. If your network blocks the endpoint, tell the trainer.
+Postman account guide: https://learning.postman.com/docs/getting-started/installation/account/sign-up-for-postman
+Postman desktop download: https://www.postman.com/downloads/
+15. Create a Pinecone account and install the SDK
+Purpose: Pinecone is a managed vector database used in semantic search and retrieval-augmented generation (RAG) exercises.
+Create a Pinecone account and open the Pinecone console.
+Create or select a project.
+Create an API key with the minimum scope supported for the training exercise.
+Store the key securely. Do not place it in code or commit it to GitHub.
+Do not create paid indexes or other resources until the trainer gives the required index configuration and cleanup instructions.
+In the activated Python virtual environment, install the official Python SDK:
+python -m pip install pinecone
+python -c "import pinecone; print(pinecone.__version__)"
+Verification test: a version number prints. This confirms SDK installation, not API-key validity. The trainer will validate API access when the exercise starts.
+Pinecone SDK installation: https://sdk.pinecone.io/python/getting-started/installation.html
+Pinecone authentication: https://sdk.pinecone.io/python/getting-started/authentication.html
+Pinecone quickstart: https://sdk.pinecone.io/python/getting-started/quickstart.html
+16. Secrets and repository hygiene
+Purpose: prevent accidental credential leaks that could expose cloud resources or create unexpected charges.
+Create a .gitignore file in each project with at least these entries:
+.venv/
+.env
+.env.*
+!.env.example
+__pycache__/
+*.py[cod]
+.aws-sam/
+☐ Use .env.example for placeholder names only, never real keys or passwords.
+☐ Never commit AWS credentials, Pinecone API keys, passwords, tokens, private keys, or real customer data.
+☐ Do not print secrets in logs or share screenshots that show credentials.
+☐ If a key is exposed, revoke/rotate it immediately. Deleting the line in a later commit is not enough.
+17. Optional tools — install only if the trainer requests them
+Tool
+Purpose
+Verification
+Docker Desktop
+SAM local tests and containerized exercises
+docker --version; docker ps
+Node.js LTS
+Only if course dependencies require it
+node --version; npm --version
+jq
+Optional JSON parsing in shell exercises
+jq --version
+AWS Toolkit for VS Code
+Optional IDE integration
+Extension visible in VS Code
+
+Do not install every optional tool in advance. The trainer should confirm required versions to avoid conflicts.
+18. Final readiness sign-off
+☐ Own AWS account created and activated
+☐ Root-user MFA enabled; no root access keys created
+☐ Monthly AWS budget and email alerts configured
+☐ One IAM user created with console password and AdministratorAccess
+☐ MFA enabled for IAM admin user
+☐ IAM access key created for CLI and stored securely
+☐ AWS CLI v2 installed; aws sts get-caller-identity succeeds
+☐ Git and Git Bash/Terminal installed; git --version works
+☐ GitHub account verified, 2FA enabled, test commit pushed
+☐ VS Code and Python extension installed
+☐ Python and pip work; virtual environment tested
+☐ AWS SAM CLI installed; sam --version works
+☐ Postman installed; Echo GET request tested
+☐ Pinecone account created; SDK installed; API key stored securely
+☐ I understand cloud costs and will clean up training resources
+Candidate confirmation
+I completed the checks and have not shared credentials.
+Candidate name / date
+________________________________________
+
+19. Official reference links
+AWS account signup: https://docs.aws.amazon.com/accounts/latest/reference/getting-started.html
+Create an IAM user: https://docs.aws.amazon.com/IAM/latest/UserGuide/id_users_create.html
+AdministratorAccess policy: https://docs.aws.amazon.com/aws-managed-policy/latest/reference/AdministratorAccess.html
+Root-user best practices: https://docs.aws.amazon.com/IAM/latest/UserGuide/root-user-best-practices.html
+IAM MFA: https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_mfa_enable_virtual.html
+Access-key best practices: https://docs.aws.amazon.com/IAM/latest/UserGuide/securing_access-keys.html
+AWS Budgets: https://docs.aws.amazon.com/cost-management/latest/userguide/budgets-managing-costs.html
+AWS CLI installation: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html
+AWS SAM CLI: https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam-cli.html
+Git downloads: https://git-scm.com/downloads
+GitHub account creation: https://docs.github.com/en/get-started/start-your-journey/creating-an-account-on-github
+VS Code: https://code.visualstudio.com/Download
+Python: https://www.python.org/downloads/
+Postman: https://www.postman.com/downloads/
+Pinecone SDK: https://sdk.pinecone.io/python/getting-started/installation.html
+Trainer note: before each batch, confirm the signup path, AWS Region, required permissions, expected services, maximum spending guidance, and resource cleanup instructions.
