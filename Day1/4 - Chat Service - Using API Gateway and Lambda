@@ -1,6 +1,8 @@
 Step 1: Create Lambda execution role
 Why? Lambda needs an IAM role to execute and write its execution logs to CloudWatch.
-cat <<'EOF' > trust-policy.json
+
+
+#cat <<'EOF' > trust-policy.json
 {
   "Version": "2012-10-17",
   "Statement": [{
@@ -15,22 +17,25 @@ EOF
 
 
 Create the role:
-aws iam create-role \
+
+#aws iam create-role \
   --role-name training-chat-lambda-role \
   --assume-role-policy-document file://trust-policy.json
 
 
 Attach CloudWatch logging permissions:
-aws iam attach-role-policy \
+
+#aws iam attach-role-policy \
   --role-name training-chat-lambda-role \
   --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-
+----------------------------------------------------------
 
 Step 2: Create Lambda function
 Why? Lambda acts as our backend processing engine. It receives the user's message, counts words and letters, and prepares a response.
 
 Create the Python code:
-cat <<'EOF' > lambda_function.py
+
+#cat <<'EOF' > lambda_function.py
 import json
 
 def lambda_handler(event, context):
@@ -58,17 +63,18 @@ EOF
 
 
 Create a deployment package:
-zip function.zip lambda_function.py
+#zip function.zip lambda_function.py
 
 
 Create the Lambda function:
-ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 
-ROLE_ARN="arn:aws:iam::$ACCOUNT_ID:role/training-chat-lambda-role"
+#ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 
-sleep 10
+#ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/training-chat-lambda-role"
 
-aws lambda create-function \
+#sleep 10
+
+#aws lambda create-function \
   --function-name training-chat-engine \
   --runtime python3.13 \
   --role "$ROLE_ARN" \
@@ -78,12 +84,14 @@ aws lambda create-function \
   --memory-size 128 \
   --region ap-south-1
 
+--------------------------------------------------------------------
 
 Step 3: Create API Gateway HTTP API
 Why? API Gateway provides an HTTP endpoint through which the frontend can communicate with Lambda. We will use an HTTP API because it is simple and cost-effective for this demonstration.
 
 Create the API:
-API_ID=$(aws apigatewayv2 create-api \
+
+#API_ID=$(aws apigatewayv2 create-api \
   --name training-chat-api \
   --protocol-type HTTP \
   --cors-configuration '{"AllowOrigins":["*"],"AllowMethods":["POST","OPTIONS"],"AllowHeaders":["content-type"]}' \
@@ -91,14 +99,14 @@ API_ID=$(aws apigatewayv2 create-api \
   --query 'ApiId' \
   --output text)
 
-echo $API_ID
+#echo $API_ID
 
-
+---------------------------------------------------------------------
 Step 4: Integrate API Gateway with Lambda
 Why? This establishes the connection between API Gateway and our Lambda backend. When API Gateway receives a request, it forwards the request to Lambda.
 
 Get Lambda ARN:
-LAMBDA_ARN=$(aws lambda get-function \
+#LAMBDA_ARN=$(aws lambda get-function \
   --function-name training-chat-engine \
   --region ap-south-1 \
   --query 'Configuration.FunctionArn' \
@@ -106,7 +114,8 @@ LAMBDA_ARN=$(aws lambda get-function \
 
 
 Create the integration:
-INTEGRATION_ID=$(aws apigatewayv2 create-integration \
+
+#INTEGRATION_ID=$(aws apigatewayv2 create-integration \
   --api-id "$API_ID" \
   --integration-type AWS_PROXY \
   --integration-uri "$LAMBDA_ARN" \
@@ -115,9 +124,9 @@ INTEGRATION_ID=$(aws apigatewayv2 create-integration \
   --query 'IntegrationId' \
   --output text)
 
-echo $INTEGRATION_ID
+#echo $INTEGRATION_ID
 
-
+-----------------------------------------------------------------------------
 Step 5: Create API route
 Why? A route defines the HTTP method and path through which users access the backend functionality.
 
@@ -126,16 +135,17 @@ POST /chat
 
 
 Create the route:
-aws apigatewayv2 create-route \
+#aws apigatewayv2 create-route \
   --api-id "$API_ID" \
   --route-key 'POST /chat' \
   --target "integrations/$INTEGRATION_ID" \
   --region ap-south-1
 
-
+------------------------------------------------------------------------------
 Step 6: Allow API Gateway to invoke Lambda
 Why? API Gateway needs explicit permission to invoke our Lambda function.
-aws lambda add-permission \
+
+#aws lambda add-permission \
   --function-name training-chat-engine \
   --statement-id AllowAPIGatewayInvocation \
   --action lambda:InvokeFunction \
@@ -143,7 +153,7 @@ aws lambda add-permission \
   --source-arn "arn:aws:execute-api:ap-south-1:$ACCOUNT_ID:$API_ID/*/POST/chat" \
   --region ap-south-1
 
-
+-----------------------------------------------------------------------------
 Step 7: Deploy the API
 Why? Deployment makes the API route accessible through an HTTPS endpoint.
 aws apigatewayv2 create-stage \
@@ -169,7 +179,7 @@ https://xxxxxxxx.execute-api.ap-south-1.amazonaws.com
 
 The actual chat endpoint is:
 https://xxxxxxxx.execute-api.ap-south-1.amazonaws.com/chat
-
+---------------------------------------------------------------------------------------
 
 Step 8: Test API Gateway and Lambda independently
 Why? Before connecting the frontend, we should verify that the backend integration works.
@@ -187,13 +197,13 @@ Expected response:
 
 
 If this works, API Gateway and Lambda are successfully integrated.
-
+----------------------------------------------------------------------------------------
 5. Build the Chat Frontend
 Step 9: Create chat.html
 Why? This is the user interface of our chat application. It accepts messages, sends them to API Gateway using JavaScript fetch(), and displays the response returned by Lambda.
 
 Create the frontend:
-cat <<'EOF' > chat.html
+#cat <<'EOF' > chat.html
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -372,12 +382,13 @@ EOF
 
 
 Replace the API placeholder with your actual API endpoint:
-sed -i '' "s|API_ENDPOINT_PLACEHOLDER|$API_URL|" chat.html
-
+#sed -i '' "s|API_ENDPOINT_PLACEHOLDER|$API_URL|" chat.html
+-------------------------------------------------------------------------
 
 Step 10: Upload chat.html to S3
 Why? S3 will host the frontend application. CloudFront will distribute the chat interface to users.
-aws s3 cp chat.html s3://$BUCKET/chat.html \
+
+#aws s3 cp chat.html s3://$BUCKET/chat.html \
   --content-type text/html
 
 
@@ -390,3 +401,9 @@ DOMAIN=$(aws cloudfront get-distribution \
   --output text)
 
 echo "https://$DOMAIN/chat.html"
+
+
+
+
+
+
