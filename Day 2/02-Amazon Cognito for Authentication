@@ -1,35 +1,626 @@
-Step 1 – Create Cognito User Pool
-1. Open AWS Console → Amazon Cognito.
-2. Select User pools → Create user pool.
-3. Select application type: Traditional web application or the closest browser-based application option.
-4. Application name: day2-auth-app.
-5. Select Username as the sign-in identifier.
-6. Authentication: Username and password.
-7. Do not enable MFA.
-8. Create the User Pool.
-Step 2 – Create App Client
-In the User Pool:
-1. Open App clients.
-2. Create an app client named day2-auth-web-client.
-3. Do not generate a client secret.
-4. Enable ALLOW_USER_PASSWORD_AUTH and ALLOW_REFRESH_TOKEN_AUTH if configuring the authentication flows manually.
-5. Save.
-Step 3 – Create demo user
-Under User Pool → Users:
+Step 1 – Create Amazon Cognito User Pool
+1.1 What is a Cognito User Pool?
+    An Amazon Cognito User Pool is a managed user directory and authentication service provided by AWS.
+    
+    Think of it as a centralized database of application users combined with an authentication engine.
 
-Create:
-Field	Value
-Username	student1
-Password	Student@123
+    It manages:
+    - User registration.
+    - Username and password storage.
+    - Password verification.
+    - Password policies.
+    - User account management.
+    - Authentication and token generation.
+    Instead of building our own authentication system using Lambda and DynamoDB, we can delegate these responsibilities to Cognito.
+1.2 What are we going to create?
+    We will create a User Pool named day2-auth-user-pool.
+    Configuration	Value
+    User Pool name	day2-auth-user-pool
+    AWS Region	ap-south-1
+    Sign-in method	Username
+    Authentication	Username + Password
+    MFA	Disabled
+    Minimum password length	8
 
-Set the password as permanent if Cognito asks you to choose between temporary and permanent.
-Step 4 – Connect your application
-We will modify only login.html to authenticate directly against Cognito using the Amplify JavaScript library.
+1.3 Create User Pool
+Execute:
+POOL_ID=$(aws cognito-idp create-user-pool \
+  --pool-name day2-auth-user-pool \
+  --username-configuration CaseSensitive=false \
+  --mfa-configuration OFF \
+  --policies 'PasswordPolicy={MinimumLength=8,RequireUppercase=true,RequireLowercase=true,RequireNumbers=true,RequireSymbols=true,TemporaryPasswordValidityDays=7}' \
+  --region ap-south-1 \
+  --query 'UserPool.Id' \
+  --output text)
 
-The application will use:
-- User Pool ID
-- App Client ID
-- AWS Region: ap-south-1
-After successful login, redirect to Dashboard.html. Otherwise, redirect to Login_failure.html.
-Step 5 – Upload updated frontend
-Replace the existing login.html in S3 and invalidate the CloudFront cache.
+  echo "Cognito User Pool ID: $POOL_ID"
+
+
+    The command automatically captures the generated User Pool ID into the $POOL_ID variable.
+1.4 Verify User Pool creation
+    Execute:
+    aws cognito-idp describe-user-pool \
+      --user-pool-id "$POOL_ID" \
+      --region ap-south-1 \
+      --query 'UserPool.{Name:Name,Id:Id,MFA:MfaConfiguration,Status:Status}'
+====================
+Step 2 – Create Cognito App Client
+2.1 What is an App Client?
+    An App Client represents an application that is permitted to communicate with a Cognito User Pool.
+    
+    Think of it as an identity for your application.
+    
+    In our case:
+    - Cognito User Pool manages users and passwords.
+    - App Client allows our  application to initiate authentication.
+    - Cognito verifies the credentials and returns authentication tokens.
+    Our frontend will use the App Client ID to identify itself when communicating with Cognito.
+2.2 What are we going to create?
+    Configuration	Value
+    App Client name	day2-auth-web-client
+    Authentication	Username + Password
+    Client secret	Disabled
+    Region	ap-south-1
+
+Why no client secret?
+
+    Our application runs inside a browser. Any secret embedded in JavaScript or HTML can be viewed by users. 
+    Therefore, we must use a public client without a client secret.
+2.3 Create App Client
+Execute:
+    CLIENT_ID=$(aws cognito-idp create-user-pool-client \
+      --user-pool-id "$POOL_ID" \
+      --client-name day2-auth-web-client \
+      --no-generate-secret \
+      --explicit-auth-flows ALLOW_USER_PASSWORD_AUTH ALLOW_REFRESH_TOKEN_AUTH \
+      --prevent-user-existence-errors ENABLED \
+      --region ap-south-1 \
+      --query 'UserPoolClient.ClientId' \
+      --output text)
+    
+    echo "Cognito App Client ID: $CLIENT_ID"
+
+
+This automatically saves the App Client ID in $CLIENT_ID.
+2.4 Verify App Client
+Execute:
+aws cognito-idp describe-user-pool-client \
+  --user-pool-id "$POOL_ID" \
+  --client-id "$CLIENT_ID" \
+  --region ap-south-1 \
+  --query 'UserPoolClient.{ClientName:ClientName,ClientId:ClientId,HasSecret:GenerateSecret,AuthFlows:ExplicitAuthFlows}'
+
+=========================
+Step 3 – Create a Demo User in Cognito
+3.1 What are we doing?
+    We are creating a student account inside the Cognito User Pool.
+    
+    Unlike our earlier implementation, where we stored user details and password hashes in DynamoDB, Cognito will manage the user credentials.
+    
+    Cognito securely stores the password and handles password verification during login.
+3.2 Demo user details
+    Attribute	Value
+    Username	student1
+    Email	student1@example.com
+    Name	Demo Student
+    Password	Student@123
+
+3.3 Create user
+    Execute:
+    aws cognito-idp admin-create-user \
+      --user-pool-id "$POOL_ID" \
+      --username student1 \
+      --user-attributes \
+          Name=email,Value=student1@example.com \
+          Name=name,Value="Demo Student" \
+          Name=email_verified,Value=true \
+      --message-action SUPPRESS \
+      --region ap-south-1
+
+
+      --message-action SUPPRESS prevents Cognito from sending an invitation email.
+
+
+3.4 Set permanent password
+      By default, Cognito creates users with a temporary password when using this command.
+      
+      We will set a permanent password for our demo user.
+      
+      Execute:
+      aws cognito-idp admin-set-user-password \
+        --user-pool-id "$POOL_ID" \
+        --username student1 \
+        --password 'Student@123' \
+        --permanent \
+        --region ap-south-1
+
+
+3.5 Verify user creation
+Execute:
+      aws cognito-idp admin-get-user \
+        --user-pool-id "$POOL_ID" \
+        --username student1 \
+        --region ap-south-1 \
+        --query '{Username:Username,Status:UserStatus,Enabled:Enabled,Attributes:UserAttributes}'
+      
+
+
+====================
+
+Step 4 – Connect Amazon Cognito with login.html
+4.1 Retrieve Cognito Configuration
+    What are we doing?
+    Our frontend needs two important identifiers to communicate with Cognito:
+    1. User Pool ID: Identifies the Cognito user directory.
+    2. App Client ID: Identifies our web application.
+    We will retrieve both automatically and save them into shell variables.
+4.1.1 – Retrieve User Pool ID
+      Execute:
+      POOL_ID=$(aws cognito-idp list-user-pools \
+        --max-results 60 \
+        --region ap-south-1 \
+        --query "UserPools[?Name=='day2-auth-user-pool'].Id | [0]" \
+        --output text)
+      
+      echo "User Pool ID: $POOL_ID"
+
+
+4.1.2 – Retrieve App Client ID
+      CLIENT_ID=$(aws cognito-idp list-user-pool-clients \
+        --user-pool-id "$POOL_ID" \
+        --region ap-south-1 \
+        --query "UserPoolClients[?ClientName=='day2-auth-web-client'].ClientId | [0]" \
+        --output text)
+      
+      echo "App Client ID: $CLIENT_ID"
+
+
+4.1.3 – Capture AWS Region
+    AWS_REGION="ap-south-1"
+
+====================
+Step 4.2 – Integrate login.html with Amazon Cognito
+      4.2.1 What are we doing?
+      We will replace the existing custom authentication logic in login.html with direct Amazon Cognito authentication.
+      
+      Previously:
+      
+      login.html → API Gateway → Lambda → DynamoDB
+      
+      Now:
+      
+      login.html → Amazon Cognito User Pool
+      
+      The browser will communicate directly with Cognito using its App Client ID.
+      
+      We will use the Cognito InitiateAuth API with the USER_PASSWORD_AUTH flow.
+
+What happens during login?
+      1. Student enters username and password.
+      2. JavaScript sends credentials to Cognito.
+      3. Cognito validates the credentials.
+      4. Cognito returns authentication tokens.
+      5. Browser stores the tokens in session storage.
+      6. Browser redirects to Dashboard.html.
+      No Lambda, API Gateway or external JavaScript library is needed for this implementation.
+4.2.2 Replace login.html
+    Execute this complete command: ( You already have created frontend folder . execute it there if possible)
+   
+
+cat > login.html <<'HTML'
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Student Login - Cognito</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #eef2f7;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+
+        .login-container {
+            background: white;
+            padding: 35px;
+            border-radius: 12px;
+            width: 340px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        }
+
+        h2 {
+            text-align: center;
+            color: #1e3a5f;
+        }
+
+        input {
+            width: 100%;
+            padding: 12px;
+            margin: 10px 0;
+            box-sizing: border-box;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+        }
+
+        button {
+            width: 100%;
+            padding: 12px;
+            margin-top: 15px;
+            background: #2563eb;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        button:disabled {
+            background: #888;
+            cursor: not-allowed;
+        }
+
+        #message {
+            text-align: center;
+            margin-top: 15px;
+            color: red;
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="login-container">
+    <h2>Student Login</h2>
+
+    <form id="loginForm">
+        <input
+            type="text"
+            id="username"
+            placeholder="Username"
+            autocomplete="username"
+            required
+        >
+
+        <input
+            type="password"
+            id="password"
+            placeholder="Password"
+            autocomplete="current-password"
+            required
+        >
+
+        <button type="submit" id="loginButton">Login</button>
+    </form>
+
+    <div id="message"></div>
+</div>
+
+<script>
+
+const REGION = "ap-south-1";
+const CLIENT_ID = "REPLACE_WITH_APP_CLIENT_ID";
+
+const COGNITO_URL =
+    `https://cognito-idp.${REGION}.amazonaws.com/`;
+
+document.getElementById("loginForm")
+.addEventListener("submit", async function(event) {
+
+    event.preventDefault();
+
+    const username =
+        document.getElementById("username").value.trim();
+
+    const password =
+        document.getElementById("password").value;
+
+    const message =
+        document.getElementById("message");
+
+    const button =
+        document.getElementById("loginButton");
+
+    button.disabled = true;
+    button.textContent = "Authenticating...";
+    message.textContent = "";
+
+    try {
+
+        const response = await fetch(COGNITO_URL, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/x-amz-json-1.1",
+                "X-Amz-Target":
+                    "AWSCognitoIdentityProviderService.InitiateAuth"
+            },
+            body: JSON.stringify({
+                AuthFlow: "USER_PASSWORD_AUTH",
+                ClientId: CLIENT_ID,
+                AuthParameters: {
+                    USERNAME: username,
+                    PASSWORD: password
+                }
+            })
+        });
+
+        const data = await response.json();
+
+        if (
+            response.ok &&
+            data.AuthenticationResult
+        ) {
+
+            sessionStorage.setItem(
+                "cognito_tokens",
+                JSON.stringify(data.AuthenticationResult)
+            );
+
+            sessionStorage.setItem(
+                "cognito_username",
+                username
+            );
+
+            window.location.href = "Dashboard.html";
+
+        } else {
+
+            window.location.href = "Login_failure.html";
+
+        }
+
+    } catch (error) {
+
+        message.textContent =
+            "Unable to connect to authentication service.";
+
+        button.disabled = false;
+        button.textContent = "Login";
+
+    }
+
+});
+
+</script>
+
+</body>
+</html>
+HTML
+
+
+4.2.3 – Automatically insert App Client ID
+      Execute:
+      
+      
+      sed -i '' "s/REPLACE_WITH_APP_CLIENT_ID/$CLIENT_ID/" login.html
+
+
+      This replaces the placeholder with your actual Cognito App Client ID.
+4.2.4 – Verify configuration
+      grep -E "const REGION|const CLIENT_ID|AuthFlow" login.html
+
+
+Expected:
+const REGION = "ap-south-1";
+const CLIENT_ID = "your-actual-client-id";
+AuthFlow: "USER_PASSWORD_AUTH",
+===============
+
+Step 4.3 – Update Dashboard.html
+4.3.1 What are we doing?
+    After successful authentication, Cognito returns three tokens:
+    - ID Token: Contains authenticated user information.
+    - Access Token: Used to authorize access to Cognito resources.
+    - Refresh Token: Used to obtain new tokens when existing tokens expire.
+    We will update Dashboard.html to:
+    1. Check whether Cognito authentication tokens exist.
+    2. Decode the ID Token to display student information.
+    3. Display username and email.
+    4. Provide a Logout button.
+    5. Redirect unauthenticated users to login.html.
+4.3.2 Replace Dashboard.html
+Execute this complete command:
+
+
+cat > Dashboard.html <<'HTML'
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Student Dashboard - Cognito</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #eef2f7;
+            margin: 0;
+        }
+
+        .header {
+            background: #1e3a5f;
+            color: white;
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .container {
+            max-width: 700px;
+            margin: 60px auto;
+            padding: 30px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+        }
+
+        .details {
+            background: #f1f5f9;
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+
+        button {
+            padding: 10px 20px;
+            background: #dc2626;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="header">
+    <h2>Student Dashboard</h2>
+    <button onclick="logout()">Logout</button>
+</div>
+
+<div class="container">
+
+    <h1>Welcome!</h1>
+
+    <p>You have successfully logged in through Amazon Cognito.</p>
+
+    <div class="details">
+        <h3>Authenticated User Information</h3>
+
+        <p><strong>Username:</strong> <span id="username"></span></p>
+        <p><strong>Email:</strong> <span id="email"></span></p>
+        <p><strong>Name:</strong> <span id="name"></span></p>
+        <p><strong>Authentication:</strong> Amazon Cognito</p>
+    </div>
+
+</div>
+
+<script>
+
+function decodeToken(token) {
+
+    const payload = token.split(".")[1];
+
+    const base64 = payload
+        .replace(/-/g, "+")
+        .replace(/_/g, "/");
+
+    return JSON.parse(
+        decodeURIComponent(
+            atob(base64)
+                .split("")
+                .map(c => "%" +
+                    c.charCodeAt(0).toString(16).padStart(2, "0"))
+                .join("")
+        )
+    );
+}
+
+const tokens = sessionStorage.getItem("cognito_tokens");
+
+if (!tokens) {
+
+    window.location.replace("login.html");
+
+} else {
+
+    try {
+
+        const authentication = JSON.parse(tokens);
+
+        if (!authentication.IdToken) {
+            throw new Error("ID token missing");
+        }
+
+        const user = decodeToken(authentication.IdToken);
+
+        if (user.token_use !== "id" ||
+            !user.exp ||
+            user.exp <= Math.floor(Date.now() / 1000)) {
+            throw new Error("Invalid or expired ID token");
+        }
+
+        document.getElementById("username").textContent =
+            user["cognito:username"] || user.username || "";
+
+        document.getElementById("email").textContent =
+            user.email || "Not provided";
+
+        document.getElementById("name").textContent =
+            user.name || "Not provided";
+
+    } catch (error) {
+
+        sessionStorage.removeItem("cognito_tokens");
+        sessionStorage.removeItem("cognito_username");
+
+        window.location.replace("login.html");
+    }
+}
+
+function logout() {
+
+    sessionStorage.removeItem("cognito_tokens");
+    sessionStorage.removeItem("cognito_username");
+
+    window.location.replace("login.html");
+}
+
+</script>
+
+</body>
+</html>
+HTML
+
+
+4.3.3 – Verify file creation
+    ls -lh Dashboard.html
+
+=========================
+
+Step 4.4 – Upload Updated Frontend Files to S3
+4.4.1 What are we doing?
+      We have modified:
+      - login.html – Now authenticates directly with Amazon Cognito.
+      - Dashboard.html – Displays information from Cognito's ID Token.
+      We need to upload these updated files to S3 so CloudFront can serve the new application.
+4.4.2 Upload updated files
+      We will use your existing S3 bucket stored in $BUCKET.
+      
+      Execute:
+      
+      aws s3 cp login.html s3://$BUCKET/login.html \
+        --content-type "text/html"
+      
+      aws s3 cp Dashboard.html s3://$BUCKET/Dashboard.html \
+        --content-type "text/html"
+
+We need to invalidate the Cloudfront Cache. But since we have already configured a event driven invalidation for our cloudfront., it will be automatic
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
