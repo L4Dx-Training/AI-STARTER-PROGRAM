@@ -1,1 +1,1206 @@
+ACCOUNT_ID=$(aws sts get-caller-identity \
+  --query Account \
+  --output text)
+
+echo "AWS Account ID: $ACCOUNT_ID"
+echo "AWS Region: $AWS_REGION"
+
+# List available Amazon foundation models
+aws bedrock list-foundation-models \
+  --by-provider Amazon \
+  --by-output-modality TEXT \
+  --query 'modelSummaries[].{Name:modelName,ModelID:modelId}' \
+  --output table
+
+==============================
+Step 2 – Verify Bedrock access
+Purpose: Confirm that the CLI recognizes Bedrock and your AWS credentials can query the service.
+
+Execute:
+aws bedrock list-foundation-models \
+  --region ap-south-1 \
+  --query 'modelSummaries[].{Name:modelName,ModelID:modelId}' \
+  --output table
+
+
+===========================
+Step 3 – Identify the models for our RAG application
+Purpose: We need two different models:
+1. Embedding model: Converts document chunks and questions into vectors.
+2. Foundation model (LLM): Generates answers using retrieved document content.
+For this exercise, let's use Amazon Titan Embeddings and Amazon Nova Lite, subject to availability in Mumbai.
+
+Run:
+aws bedrock list-foundation-models \
+  --region ap-south-1 \
+  --query "modelSummaries[?contains(modelId, 'titan-embed-text') || contains(modelId, 'nova-lite')].[modelName,modelId]" \
+  --output table
+
+============================
+
+Step 4 – Save model configuration
+Purpose: Store the model IDs and AWS Region in shell variables so we can reuse them in subsequent commands without manually copying IDs.
+
+Execute:
+export AWS_REGION="ap-south-1"
+export EMBEDDING_MODEL_ID="amazon.titan-embed-text-v2:0"
+export LLM_MODEL_ID="amazon.nova-lite-v1:0"
+
+echo "Region: $AWS_REGION"
+echo "Embedding Model: $EMBEDDING_MODEL_ID"
+echo "LLM Model: $LLM_MODEL_ID"
+
+=======================
+
+
+Step 5 – Create the S3 bucket for knowledge documents
+Purpose: This bucket will hold the source documents that Amazon Bedrock Knowledge Bases will ingest and use for RAG.
+
+For our classroom exercise, we will use a separate S3 bucket for knowledge documents. The chatbot frontend will have its own bucket later.
+Execute these commands
+# Set the AWS account ID
+ACCOUNT_ID=$(aws sts get-caller-identity \
+  --query Account \
+  --output text)
+
+# Set the document bucket name
+export DOC_BUCKET="day2-rag-docs-${ACCOUNT_ID}-ap-south-1"
+
+# Create the S3 bucket
+aws s3api create-bucket \
+  --bucket "$DOC_BUCKET" \
+  --region ap-south-1 \
+  --create-bucket-configuration LocationConstraint=ap-south-1
+
+# Enable encryption
+aws s3api put-bucket-encryption \
+  --bucket "$DOC_BUCKET" \
+  --server-side-encryption-configuration '{
+    "Rules": [
+      {
+        "ApplyServerSideEncryptionByDefault": {
+          "SSEAlgorithm": "AES256"
+        }
+      }
+    ]
+  }'
+
+# Block public access
+aws s3api put-public-access-block \
+  --bucket "$DOC_BUCKET" \
+  --public-access-block-configuration \
+  BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+
+echo "Knowledge Documents Bucket: $DOC_BUCKET"
+
+======================
+
+Step 6.1 – Create the two documents
+Run this complete command:
+
+
+cat > aws-s3-guide.txt <<'EOF'
+AWS S3 - Internal Technical Guide
+
+Amazon Simple Storage Service (S3) is an object storage service.
+
+Key concepts:
+1. An S3 bucket is a container for storing objects.
+2. Objects are stored inside buckets.
+3. S3 supports versioning to maintain multiple versions of objects.
+4. Bucket policies control access to S3 resources.
+5. Server-side encryption protects data stored in S3.
+6. S3 lifecycle policies can transition objects to lower-cost storage classes or expire them.
+7. Block Public Access helps prevent unintended public access.
+
+Recommended practices:
+- Enable encryption.
+- Enable versioning for important data.
+- Block public access unless explicitly required.
+- Apply least-privilege IAM permissions.
+- Configure lifecycle policies based on data retention requirements.
+EOF
+--------------
+
+cat > eks-guide.txt <<'EOF'
+Amazon EKS - Internal Technical Guide
+
+Amazon Elastic Kubernetes Service (EKS) is a managed Kubernetes service.
+
+Key concepts:
+1. An EKS cluster provides the Kubernetes control plane.
+2. Worker nodes run application workloads.
+3. Managed node groups simplify worker node management.
+4. Pods are the smallest deployable units in Kubernetes.
+5. Deployments manage replicated stateless applications.
+6. Services provide stable network access to applications.
+7. Persistent Volumes provide storage to workloads.
+8. IAM Roles for Service Accounts (IRSA) allow Kubernetes workloads to access AWS services.
+
+Recommended practices:
+- Use multiple Availability Zones for production clusters.
+- Apply Kubernetes RBAC.
+- Use IAM roles with least privilege.
+- Configure resource requests and limits.
+- Monitor cluster and application health.
+- Use rolling deployments for application updates.
+EOF
+=======================
+Step 6.2 – Upload documents to S3
+Purpose: Upload both knowledge documents to the private S3 bucket. Bedrock will use this bucket as its data source.
+
+Execute:
+
+
+aws s3 cp aws-s3-guide.txt "s3://$DOC_BUCKET/"
+aws s3 cp eks-guide.txt "s3://$DOC_BUCKET/"
+
+================
+Step 7 – Create the IAM service role for Bedrock Knowledge Bases
+Purpose: Amazon Bedrock needs its own IAM role to access the source documents in S3 and invoke the embedding model.
+
+This is a service role: Bedrock assumes this role when it processes documents and generates embeddings.
+
+We will create a dedicated role named day2-rag-kb-role.
+
+The role will initially have permissions for:
+- Reading documents from our private S3 bucket.
+- Invoking Amazon Titan Text Embeddings V2.
+- Allowing the Bedrock service to assume the role.
+We will add vector-store permissions when we create the vector index.
+Execute these commands
+
+# Re-establish variables
+export AWS_REGION="ap-south-1"
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+export DOC_BUCKET="day2-rag-docs-${ACCOUNT_ID}-ap-south-1"
+
+ROLE_NAME="day2-rag-kb-role"
+
+# Create Bedrock trust policy
+cat > trust-policy.json <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "bedrock.amazonaws.com"
+      },
+      "Action": "sts:AssumeRole",
+      "Condition": {
+        "StringEquals": {
+          "aws:SourceAccount": "${ACCOUNT_ID}"
+        },
+        "ArnLike": {
+          "aws:SourceArn": "arn:aws:bedrock:${AWS_REGION}:${ACCOUNT_ID}:knowledge-base/*"
+        }
+      }
+    }
+  ]
+}
+EOF
+
+# Create IAM role
+aws iam create-role \
+  --role-name "$ROLE_NAME" \
+  --assume-role-policy-document file://trust-policy.json \
+  --description "Service role for Day 2 Bedrock RAG Knowledge Base"
+
+# Create permissions policy
+cat > kb-permissions.json <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadKnowledgeDocuments",
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket"
+      ],
+      "Resource": "arn:aws:s3:::${DOC_BUCKET}"
+    },
+    {
+      "Sid": "ReadKnowledgeObjects",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject"
+      ],
+      "Resource": "arn:aws:s3:::${DOC_BUCKET}/*"
+    },
+    {
+      "Sid": "InvokeEmbeddingModel",
+      "Effect": "Allow",
+      "Action": [
+        "bedrock:InvokeModel"
+      ],
+      "Resource": "arn:aws:bedrock:${AWS_REGION}::foundation-model/amazon.titan-embed-text-v2:0"
+    }
+  ]
+}
+EOF
+
+# Attach permissions to the role
+aws iam put-role-policy \
+  --role-name "$ROLE_NAME" \
+  --policy-name day2-rag-kb-permissions \
+  --policy-document file://kb-permissions.json
+
+# Capture role ARN
+export KB_ROLE_ARN=$(aws iam get-role \
+  --role-name "$ROLE_NAME" \
+  --query 'Role.Arn' \
+  --output text)
+
+echo "Knowledge Base Role ARN: $KB_ROLE_ARN"
+===================
+
+Step 8 – Create the vector store using Amazon S3 Vectors
+Purpose: RAG needs a vector database to store document embeddings and perform similarity searches.
+
+For this classroom project, I recommend Amazon S3 Vectors instead of OpenSearch Serverless.
+
+Why?
+- No OpenSearch collection or compute capacity to provision.
+- Managed vector storage.
+- Direct integration with Bedrock Knowledge Bases.
+- Usage-based vector storage and query pricing, making it a good option for this small demonstration. 
+  Amazon Bedrock+1
+Selected: S3 Vectors
+8.1 Create the vector bucket and index
+We will use:
+- Vector bucket: day2-rag-vector-store
+- Index: day2-rag-index
+- Dimensions: 1024
+- Distance metric: cosine
+The Titan Embeddings V2 model supports 1024 dimensions, which is what we will use. 
+Amazon Bedrock+1
+
+
+Execute:
+# Create S3 vector bucket
+export VECTOR_BUCKET="day2-rag-vectors-${ACCOUNT_ID}"
+
+aws s3vectors create-vector-bucket \
+  --vector-bucket-name "$VECTOR_BUCKET" \
+  --region "$AWS_REGION"
+
+# Capture vector bucket ARN
+export VECTOR_BUCKET_ARN=$(aws s3vectors get-vector-bucket \
+  --vector-bucket-name "$VECTOR_BUCKET" \
+  --region "$AWS_REGION" \
+  --query 'vectorBucket. vectorBucketArn' \
+  --output text)
+
+8.2 Create the vector index
+export VECTOR_INDEX="day2-rag-index"
+
+aws s3vectors create-index \
+  --vector-bucket-name "$VECTOR_BUCKET" \
+  --index-name "$VECTOR_INDEX" \
+  --data-type float32 \
+  --dimension 1024 \
+  --distance-metric cosine \
+  --region "$AWS_REGION"
+
+# Capture index ARN
+export VECTOR_INDEX_ARN=$(aws s3vectors get-index \
+  --vector-bucket-name "$VECTOR_BUCKET" \
+  --index-name "$VECTOR_INDEX" \
+  --region "$AWS_REGION" \
+  --query 'index.indexArn' \
+  --output text)
+
+echo "Vector Bucket: $VECTOR_BUCKET"
+echo "Vector Bucket ARN: $VECTOR_BUCKET_ARN"
+echo "Vector Index: $VECTOR_INDEX"
+echo "Vector Index ARN: $VECTOR_INDEX_ARN"
+
+
+8.3 Give the Bedrock role access to the vector index
+Bedrock needs permission to insert, retrieve, query and delete vectors.
+cat > vector-permissions.json <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3vectors:PutVectors",
+        "s3vectors:GetVectors",
+        "s3vectors:DeleteVectors",
+        "s3vectors:QueryVectors",
+        "s3vectors:GetIndex"
+      ],
+      "Resource": "${VECTOR_INDEX_ARN}"
+    }
+  ]
+}
+EOF
+
+aws iam put-role-policy \
+  --role-name day2-rag-kb-role \
+  --policy-name day2-rag-vector-permissions \
+  --policy-document file://vector-permissions.json
+
+
+8.4 Verify
+aws s3vectors get-index \
+  --vector-bucket-name "$VECTOR_BUCKET" \
+  --index-name "$VECTOR_INDEX" \
+  --region "$AWS_REGION"
+
+===============================
+
+tep 9 – Create the Amazon Bedrock Knowledge Base
+RAG configuration
+Purpose: We are now connecting the three components we prepared:
+1. S3 document bucket – contains aws-s3-guide.txt and eks-guide.txt.
+2. Titan Text Embeddings V2 – converts document chunks into vectors.
+3. S3 Vectors – stores those vectors for similarity search.
+The Knowledge Base coordinates document ingestion, embedding generation and retrieval.
+9.1 Prepare the Knowledge Base configuration
+We will create a Knowledge Base named day2-rag-knowledge-base.
+
+First, set the model ARN and create the configuration file:
+export EMBEDDING_MODEL_ARN="arn:aws:bedrock:${AWS_REGION}::foundation-model/${EMBEDDING_MODEL_ID}"
+
+cat > kb-config.json <<EOF
+{
+  "type": "VECTOR",
+  "vectorKnowledgeBaseConfiguration": {
+    "embeddingModelArn": "arn:aws:bedrock:${AWS_REGION}::foundation-model/${EMBEDDING_MODEL_ID}",
+    "embeddingModelConfiguration": {
+      "bedrockEmbeddingModelConfiguration": {
+        "dimensions": 1024,
+        "embeddingDataType": "FLOAT32"
+      }
+    }
+  }
+}
+EOF
+
+
+9.2 Create the vector storage configuration
+cat > kb-storage-config.json <<EOF
+{
+  "type": "S3_VECTORS",
+  "s3VectorsConfiguration": {
+    "vectorBucketArn": "${VECTOR_BUCKET_ARN}",
+    "indexArn": "${VECTOR_INDEX_ARN}"
+  }
+}
+EOF
+
+9.2 Create the Knowledge Base
+Execute:
+
+export KB_ID=$(aws bedrock-agent create-knowledge-base \
+  --name "$KB_NAME" \
+  --description "Day 2 classroom RAG knowledge base" \
+  --role-arn "$KB_ROLE_ARN" \
+  --knowledge-base-configuration file://kb-config.json \
+  --storage-configuration file://kb-storage-config.json \
+  --region "$AWS_REGION" \
+  --query 'knowledgeBase.knowledgeBaseId' \
+  --output text)
+
+echo "Knowledge Base ID: $KB_ID"
+
+
+aws bedrock-agent get-knowledge-base \
+  --knowledge-base-id "$KB_ID" \
+  --region "$AWS_REGION" \
+  --query 'knowledgeBase.{Name:name,ID:knowledgeBaseId,Status:status}' \
+  --output table
+
+
+===========
+We have successfully created the Bedrock Knowledge Base.
+
+Next, we need to connect our S3 document bucket to it.
+Step 10 – Connect S3 as the Knowledge Base data source
+Purpose: Tell Bedrock where the original documents are stored so it can read and ingest them.
+
+The data source will connect:
+
+S3 document bucket → Bedrock Knowledge Base
+
+Bedrock will use this connection to discover documents, extract their content, split them into chunks and generate embeddings.
+10.1 Create the data source configuration
+Execute:
+export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+cat > datasource-config.json <<EOF
+{
+  "type": "S3",
+  "s3Configuration": {
+    "bucketArn": "arn:aws:s3:::${DOC_BUCKET}",
+    "bucketOwnerAccountId": "${ACCOUNT_ID}"
+  }
+}
+EOF
+
+
+10.2 Create the S3 data source
+We will use fixed-size chunking with 300 tokens per chunk and 20% overlap.
+export DS_ID=$(aws bedrock-agent create-data-source \
+  --knowledge-base-id "$KB_ID" \
+  --name "day2-rag-s3-source" \
+  --description "S3 documents for Day 2 RAG demonstration" \
+  --data-source-configuration file://datasource-config.json \
+  --data-deletion-policy RETAIN \
+  --vector-ingestion-configuration '{
+    "chunkingConfiguration": {
+      "chunkingStrategy": "FIXED_SIZE",
+      "fixedSizeChunkingConfiguration": {
+        "maxTokens": 300,
+        "overlapPercentage": 20
+      }
+    }
+  }' \
+  --region "$AWS_REGION" \
+  --query 'dataSource.dataSourceId' \
+  --output text)
+
+echo "Data Source ID: $DS_ID"
+
+
+10.3 Verify the data source
+aws bedrock-agent get-data-source \
+  --knowledge-base-id "$KB_ID" \
+  --data-source-id "$DS_ID" \
+  --region "$AWS_REGION" \
+  --query 'dataSource.{Name:name,ID:dataSourceId,Status:status}' \
+  --output table
+
+======================
+Step 11 – Start the Knowledge Base ingestion job
+Document ingestion
+Purpose: We will ask Bedrock to process the documents uploaded to S3 and populate the S3 Vectors index.
+
+During ingestion, Bedrock will:
+1. Read the documents from S3.
+2. Extract their text.
+3. Split the text into chunks.
+4. Generate embeddings using Titan Text Embeddings V2.
+5. Store the embeddings in the S3 Vectors index.
+11.1 Start ingestion
+Execute:
+export INGESTION_JOB_ID=$(aws bedrock-agent start-ingestion-job \
+  --knowledge-base-id "$KB_ID" \
+  --data-source-id "$DS_ID" \
+  --region "$AWS_REGION" \
+  --query 'ingestionJob.ingestionJobId' \
+  --output text)
+
+echo "Ingestion Job ID: $INGESTION_JOB_ID"
+
+
+11.2 Check ingestion status
+aws bedrock-agent get-ingestion-job \
+  --knowledge-base-id "$KB_ID" \
+  --data-source-id "$DS_ID" \
+  --ingestion-job-id "$INGESTION_JOB_ID" \
+  --region "$AWS_REGION" \
+  --query 'ingestionJob.{Status:status,DocumentsScanned:statistics.numberOfDocumentsScanned,DocumentsIndexed:statistics.numberOfDocumentsIndexed,DocumentsFailed:statistics.numberOfDocumentsFailed}' \
+  --output table
+==================
+Step 12 – Test Knowledge Base retrieval using AWS CLI
+Purpose: Ask Bedrock a question and verify that it retrieves relevant information from our uploaded documents.
+
+At this stage, we are testing retrieval only. We are not yet asking the LLM to generate an answer.
+12.1 Execute the retrieval command
+aws bedrock-agent-runtime retrieve \
+  --knowledge-base-id "$KB_ID" \
+  --retrieval-query '{"text":"What are the recommended security practices for Amazon S3?"}' \
+  --retrieval-configuration '{
+    "vectorSearchConfiguration": {
+      "numberOfResults": 3
+    }
+  }' \
+  --region "$AWS_REGION" \
+  --query 'retrievalResults[].{Content:content.text,Score:score,Source:location.s3Location.uri}' \
+  --output table
+
+=================
+Step 13.2 – Capture and verify the inference profile
+Run this in your existing terminal:
+export LLM_INFERENCE_PROFILE_ARN=$(aws bedrock list-inference-profiles \
+  --type-equals SYSTEM_DEFINED \
+  --region "$AWS_REGION" \
+  --query "inferenceProfileSummaries[?inferenceProfileId=='apac.amazon.nova-lite-v1:0'].inferenceProfileArn | [0]" \
+  --output text)
+
+aws bedrock get-inference-profile \
+  --inference-profile-identifier "$LLM_INFERENCE_PROFILE_ARN" \
+  --region "$AWS_REGION" \
+  --query '{ProfileId:inferenceProfileId,Status:status,Models:models[].modelArn}' \
+  --output json
+================
+Step 14.1 – Create the Lambda execution role
+Purpose: Lambda needs an IAM role to execute the Python function and write its execution logs to CloudWatch. We will grant Bedrock permissions separately in the next step.
+
+Run these commands in your existing terminal:
+cat > lambda-trust-policy.json <<'EOF'
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "lambda.amazonaws.com"
+      },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}
+EOF
+
+aws iam create-role \
+  --role-name day2-rag-lambda-role \
+  --assume-role-policy-document file://lambda-trust-policy.json
+
+aws iam attach-role-policy \
+  --role-name day2-rag-lambda-role \
+  --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+
+=================
+Step 14.2 – Grant Lambda permission to access Bedrock
+Purpose: The Lambda function must be allowed to:
+1. Retrieve relevant content from your Bedrock Knowledge Base.
+2. Invoke Nova Lite through the APAC inference profile.
+We’ll create a dedicated IAM policy and attach it to day2-rag-lambda-role. This keeps the Lambda permissions separate from the Knowledge Base execution role.
+
+Run the following commands. They automatically construct the required ARNs using your existing variables.
+
+export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+export KB_ARN="arn:aws:bedrock:${AWS_REGION}:${ACCOUNT_ID}:knowledge-base/${KB_ID}"
+
+cat > lambda-bedrock-policy.json <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "KnowledgeBaseAccess",
+      "Effect": "Allow",
+      "Action": [
+        "bedrock:RetrieveAndGenerate"
+      ],
+      "Resource": "${KB_ARN}"
+    },
+    {
+      "Sid": "NovaLiteInference",
+      "Effect": "Allow",
+      "Action": [
+        "bedrock:InvokeModel",
+        "bedrock:InvokeModelWithResponseStream",
+        "bedrock:GetInferenceProfile"
+      ],
+      "Resource": [
+        "${LLM_INFERENCE_PROFILE_ARN}",
+        "arn:aws:bedrock:*::foundation-model/amazon.nova-lite-v1:0"
+      ]
+    }
+  ]
+}
+EOF
+
+aws iam put-role-policy \
+  --role-name day2-rag-lambda-role \
+  --policy-name day2-rag-bedrock-access \
+  --policy-document file://lambda-bedrock-policy.json
+
+
+===============
+
+Step 14.3 – Create the Lambda function code
+Purpose: This Python function will receive a question from the chatbot, send it to your Bedrock Knowledge Base using RetrieveAndGenerate, and return the generated answer along with its source references.
+
+In your existing frontend directory, run:
+
+
+cat > lambda_function.py <<'PY'
+import json
+import os
+import boto3
+
+bedrock = boto3.client(
+    "bedrock-agent-runtime",
+    region_name=os.environ["AWS_REGION"]
+)
+
+def lambda_handler(event, context):
+    try:
+        body = json.loads(event.get("body") or "{}")
+        question = body.get("question", "").strip()
+
+        if not question:
+            return response(400, {"error": "Please enter a question."})
+
+        result = bedrock.retrieve_and_generate(
+            input={"text": question},
+            retrieveAndGenerateConfiguration={
+                "type": "KNOWLEDGE_BASE",
+                "knowledgeBaseConfiguration": {
+                    "knowledgeBaseId": os.environ["KB_ID"],
+                    "modelArn": os.environ["LLM_INFERENCE_PROFILE_ARN"]
+                }
+            }
+        )
+
+        answer = result["output"]["text"]
+
+        sources = []
+        for citation in result.get("citations", []):
+            for reference in citation.get("retrievedReferences", []):
+                location = reference.get("location", {})
+                s3_location = location.get("s3Location", {})
+
+                sources.append({
+                    "text": reference.get("content", {}).get("text", ""),
+                    "source": s3_location.get("uri", "")
+                })
+
+        return response(200, {
+            "answer": answer,
+            "sources": sources
+        })
+
+    except Exception:
+        return response(500, {
+            "error": "Unable to process your question at this time."
+        })
+
+
+def response(status_code, body):
+    return {
+        "statusCode": status_code,
+        "headers": {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*"
+        },
+        "body": json.dumps(body)
+    }
+PY
+
+zip lambda-function.zip lambda_function.py
+
+==========
+
+Step 14.4 – Create the Lambda function
+Purpose: We will deploy the Python code to AWS Lambda and configure its runtime, execution role, memory, timeout, and Bedrock environment variables.
+
+Run:
+export LAMBDA_ROLE_ARN=$(aws iam get-role \
+  --role-name day2-rag-lambda-role \
+  --query 'Role.Arn' \
+  --output text)
+
+Step 14.4 – Create the Lambda function
+First, update the Python code to use BEDROCK_REGION:
+sed -i '' 's/os.environ\["AWS_REGION"\]/os.environ["BEDROCK_REGION"]/g' lambda_function.py
+
+zip -u lambda-function.zip lambda_function.py
+
+
+Now create the Lambda function with the corrected environment variables:
+aws lambda create-function \
+  --function-name day2-rag-chat \
+  --runtime python3.13 \
+  --handler lambda_function.lambda_handler \
+  --role "$LAMBDA_ROLE_ARN" \
+  --zip-file fileb://lambda-function.zip \
+  --timeout 60 \
+  --memory-size 512 \
+  --environment "Variables={BEDROCK_REGION=${AWS_REGION},KB_ID=${KB_ID},LLM_INFERENCE_PROFILE_ARN=${LLM_INFERENCE_PROFILE_ARN}}" \
+  --region "$AWS_REGION"
+==============
+
+Step 14.5 – Wait for Lambda to become active
+Purpose: Before connecting API Gateway, we need AWS Lambda to finish creating the function and make it available for invocation.
+
+Run:
+aws lambda wait function-active-v2 \
+  --function-name day2-rag-chat \
+  --region "$AWS_REGION"
+
+
+Then verify its state:
+aws lambda get-function-configuration \
+  --function-name day2-rag-chat \
+  --region "$AWS_REGION" \
+  --query '{FunctionName:FunctionName,Runtime:Runtime,State:State,LastUpdateStatus:LastUpdateStatus}' \
+  --output table
+=========================
+
+
+Step 15.1 – Create the API Gateway HTTP API
+Purpose: API Gateway will provide an HTTPS endpoint for the chatbot frontend. It will receive the user's question and forward it to our Lambda function.
+
+We will use an API Gateway HTTP API for this classroom demo. It supports Lambda integration and CORS with less configuration than a REST API
+
+export API_NAME="day2-rag-chat-api"
+
+export API_ID=$(aws apigatewayv2 create-api \
+  --name "$API_NAME" \
+  --protocol-type HTTP \
+  --cors-configuration 'AllowOrigins=["*"],AllowMethods=["POST"],AllowHeaders=["content-type"]' \
+  --region "$AWS_REGION" \
+  --query 'ApiId' \
+  --output text)
+
+echo "API Gateway ID: $API_ID"
+==============
+
+Step 15.2 – Create the Lambda integration
+Purpose: We need to connect API Gateway to the Lambda function. This integration tells API Gateway which backend function should process incoming chatbot requests.
+
+Run:
+export LAMBDA_ARN=$(aws lambda get-function \
+  --function-name day2-rag-chat \
+  --region "$AWS_REGION" \
+  --query 'Configuration.FunctionArn' \
+  --output text)
+
+export INTEGRATION_ID=$(aws apigatewayv2 create-integration \
+  --api-id "$API_ID" \
+  --integration-type AWS_PROXY \
+  --integration-method POST \
+  --integration-uri "$LAMBDA_ARN" \
+  --payload-format-version "2.0" \
+  --region "$AWS_REGION" \
+  --query 'IntegrationId' \
+  --output text)
+
+echo "Lambda integration ID: $INTEGRATION_ID"
+
+===========
+
+Step 15.3 – Create the chatbot route
+Purpose: We will define the API endpoint that the frontend will call.
+
+Our endpoint will be:
+
+POST /chat
+
+The browser will send a JSON request containing the user's question:
+{
+  "question": "What are the security best practices for S3?"
+}
+
+
+Run:
+export ROUTE_ID=$(aws apigatewayv2 create-route \
+  --api-id "$API_ID" \
+  --route-key "POST /chat" \
+  --target "integrations/$INTEGRATION_ID" \
+  --region "$AWS_REGION" \
+  --query 'RouteId' \
+  --output text)
+
+echo "Route ID: $ROUTE_ID"
+
+=========
+
+
+
+Step 15.4 – Enable automatic deployment
+Purpose: We will create the $default stage with automatic deployment enabled. This ensures API Gateway publishes the route and integration without requiring a separate deployment command after every configuration change.
+
+Run:
+aws apigatewayv2 create-stage \
+  --api-id "$API_ID" \
+  --stage-name '$default' \
+  --auto-deploy \
+  --region "$AWS_REGION"
+
+
+Now capture the API endpoint:
+export API_ENDPOINT=$(aws apigatewayv2 get-api \
+  --api-id "$API_ID" \
+  --region "$AWS_REGION" \
+  --query 'ApiEndpoint' \
+  --output text)
+
+echo "Chatbot API endpoint: ${API_ENDPOINT}/chat"
+
+
+===========
+
+Step 15.5 – Allow API Gateway to invoke Lambda
+Purpose: Creating the integration does not automatically grant API Gateway permission to invoke Lambda. We must add a resource-based permission to the Lambda function.
+
+Run:
+aws lambda add-permission \
+  --function-name day2-rag-chat \
+  --statement-id AllowAPIGatewayInvoke \
+  --action lambda:InvokeFunction \
+  --principal apigateway.amazonaws.com \
+  --source-arn "arn:aws:execute-api:${AWS_REGION}:${ACCOUNT_ID}:${API_ID}/*/*/chat" \
+  --region "$AWS_REGION"
+
+==========
+
+Step 16.1 – Prepare the chatbot frontend
+Purpose: We will create a browser-based chat interface using HTML, CSS, and JavaScript. It will send questions to the API Gateway endpoint and display the answers returned by Bedrock.
+
+We will keep the frontend simple and dependency-free, using vanilla JavaScript.
+
+In your existing frontend directory, run:
+
+
+cat > index.html <<'EOF'
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Day 2 | Bedrock RAG Assistant</title>
+  <style>
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #f3f5f9;
+      color: #202b3c;
+    }
+
+    header {
+      background: #172b4d;
+      color: white;
+      padding: 22px 30px;
+    }
+
+    header h1 { margin: 0; font-size: 22px; }
+    header p { margin: 7px 0 0; color: #cbd5e1; }
+
+    .container {
+      max-width: 900px;
+      margin: 30px auto;
+      padding: 0 16px;
+    }
+
+    .chat-box {
+      background: white;
+      border-radius: 14px;
+      box-shadow: 0 4px 20px #00000010;
+      overflow: hidden;
+    }
+
+    #messages {
+      min-height: 420px;
+      max-height: 60vh;
+      overflow-y: auto;
+      padding: 24px;
+    }
+
+    .message {
+      margin-bottom: 18px;
+      padding: 14px 16px;
+      border-radius: 12px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+    }
+
+    .user {
+      background: #e5efff;
+      margin-left: 15%;
+    }
+
+    .assistant {
+      background: #f0f2f5;
+      margin-right: 10%;
+    }
+
+    .sources {
+      margin-top: 12px;
+      font-size: 12px;
+      color: #526174;
+    }
+
+    .input-area {
+      display: flex;
+      gap: 10px;
+      padding: 18px;
+      border-top: 1px solid #e5e7eb;
+    }
+
+    input {
+      flex: 1;
+      padding: 14px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      font-size: 15px;
+    }
+
+    button {
+      padding: 0 24px;
+      border: none;
+      border-radius: 8px;
+      background: #1769e0;
+      color: white;
+      font-size: 15px;
+      cursor: pointer;
+    }
+
+    button:disabled { opacity: 0.6; cursor: wait; }
+
+    .hint {
+      text-align: center;
+      color: #718096;
+      font-size: 13px;
+      margin: 16px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Bedrock RAG Assistant</h1>
+    <p>Day 2 – Amazon Bedrock Knowledge Base Demo</p>
+  </header>
+
+  <main class="container">
+    <section class="chat-box">
+      <div id="messages">
+        <div class="message assistant">
+          Hello! I am your AI knowledge assistant. Ask me a question about the documents in my knowledge base.
+        </div>
+      </div>
+
+      <form class="input-area" id="chatForm">
+        <input
+          id="question"
+          type="text"
+          placeholder="Ask a question..."
+          autocomplete="off"
+          required
+        >
+        <button id="sendButton" type="submit">Send</button>
+      </form>
+    </section>
+
+    <p class="hint">Powered by Amazon Bedrock Knowledge Bases and Nova Lite</p>
+  </main>
+
+  <script>
+    const API_URL = "REPLACE_WITH_API_ENDPOINT";
+
+    const messages = document.getElementById("messages");
+    const form = document.getElementById("chatForm");
+    const questionInput = document.getElementById("question");
+    const sendButton = document.getElementById("sendButton");
+
+    function addMessage(text, type, sources = []) {
+      const message = document.createElement("div");
+      message.className = `message ${type}`;
+
+      const content = document.createElement("div");
+      content.textContent = text;
+      message.appendChild(content);
+
+      if (sources.length) {
+        const sourceBox = document.createElement("div");
+        sourceBox.className = "sources";
+        sourceBox.textContent = "Sources: " +
+          [...new Set(sources.map(s => s.source).filter(Boolean))].join(", ");
+        message.appendChild(sourceBox);
+      }
+
+      messages.appendChild(message);
+      messages.scrollTop = messages.scrollHeight;
+    }
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+
+      const question = questionInput.value.trim();
+      if (!question) return;
+
+      addMessage(question, "user");
+      questionInput.value = "";
+      sendButton.disabled = true;
+      sendButton.textContent = "Thinking...";
+
+      try {
+        const result = await fetch(API_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question })
+        });
+
+        const data = await result.json();
+
+        if (!result.ok) {
+          throw new Error(data.error || "The request could not be completed.");
+        }
+
+        addMessage(data.answer, "assistant", data.sources || []);
+      } catch (error) {
+        addMessage("Unable to get an answer. Please try again.", "assistant");
+      } finally {
+        sendButton.disabled = false;
+        sendButton.textContent = "Send";
+        questionInput.focus();
+      }
+    });
+  </script>
+</body>
+</html>
+EOF
+
+=================
+
+Step 16.2 – Connect the frontend to API Gateway
+Purpose: Replace the placeholder in index.html with the actual HTTPS endpoint created in Step 15.4.
+
+Run this command in your existing terminal:
+sed -i '' "s|REPLACE_WITH_API_ENDPOINT|${API_ENDPOINT}/chat|" index.html
+
+
+Verify the endpoint has been inserted:
+grep 'const API_URL' index.html
+
+=============
+Step 16.3 – Create the frontend S3 bucket
+Purpose: We will host the chatbot's static HTML frontend in Amazon S3. CloudFront will later provide HTTPS access to the application.
+
+First, create a globally unique bucket name and create the bucket in Mumbai:
+export FRONTEND_BUCKET="day2-rag-frontend-${ACCOUNT_ID}-ap-south-1"
+
+aws s3api create-bucket \
+  --bucket "$FRONTEND_BUCKET" \
+  --region "$AWS_REGION" \
+  --create-bucket-configuration LocationConstraint="$AWS_REGION"
+
+
+============
+Step 16.4 – Secure the frontend S3 bucket
+Purpose: We will ensure the frontend bucket cannot be accessed publicly. CloudFront will access it through Origin Access Control (OAC), which we will configure later.
+
+Run:
+aws s3api put-public-access-block \
+  --bucket "$FRONTEND_BUCKET" \
+  --public-access-block-configuration \
+  BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true \
+  --region "$AWS_REGION"
+
+=========
+Step 16.5 – Upload the chatbot frontend to S3
+Purpose: We will upload index.html to the frontend bucket. This makes the application available as an S3 object for CloudFront to serve.
+
+Run:
+aws s3 cp index.html "s3://${FRONTEND_BUCKET}/index.html" \
+  --content-type "text/html" \
+  --region "$AWS_REGION"
+
+=============
+Step 16.6 – Enable S3 Static Website Hosting
+Run:
+aws s3 website "s3://${FRONTEND_BUCKET}/" \
+  --index-document index.html \
+  --region "$AWS_REGION"
+
+------------------
+
+Step 16.7 – Allow public access to the static website
+Purpose: Since we are serving the website directly from S3, browsers must be able to read index.html without AWS authentication.
+
+We will allow public read access to objects in this frontend bucket only. Your documents bucket and vector bucket remain private.
+
+Run:
+aws s3api put-public-access-block \
+  --bucket "$FRONTEND_BUCKET" \
+  --public-access-block-configuration \
+  BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=false,RestrictPublicBuckets=false \
+  --region "$AWS_REGION"
+
+
+Now apply the bucket policy:
+cat > frontend-bucket-policy.json <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "PublicReadForWebsite",
+      "Effect": "Allow",
+      "Principal": "*",
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::${FRONTEND_BUCKET}/*"
+    }
+  ]
+}
+EOF
+
+aws s3api put-bucket-policy \
+  --bucket "$FRONTEND_BUCKET" \
+  --policy file://frontend-bucket-policy.json \
+  --region "$AWS_REGION"
+
+======
+
+Step 16.8 – Open the chatbot website
+Purpose: We will obtain the S3 website endpoint and verify that the frontend is accessible through a browser.
+
+Run:
+export WEBSITE_URL="http://${FRONTEND_BUCKET}.s3-website.${AWS_REGION}.amazonaws.com"
+
+echo "$WEBSITE_URL"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
