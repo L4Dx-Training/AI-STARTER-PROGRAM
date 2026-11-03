@@ -1,0 +1,35 @@
+Step 1 – Create Cognito User Pool
+1. Open AWS Console → Amazon Cognito.
+2. Select User pools → Create user pool.
+3. Select application type: Traditional web application or the closest browser-based application option.
+4. Application name: day2-auth-app.
+5. Select Username as the sign-in identifier.
+6. Authentication: Username and password.
+7. Do not enable MFA.
+8. Create the User Pool.
+Step 2 – Create App Client
+In the User Pool:
+1. Open App clients.
+2. Create an app client named day2-auth-web-client.
+3. Do not generate a client secret.
+4. Enable ALLOW_USER_PASSWORD_AUTH and ALLOW_REFRESH_TOKEN_AUTH if configuring the authentication flows manually.
+5. Save.
+Step 3 – Create demo user
+Under User Pool → Users:
+
+Create:
+Field	Value
+Username	student1
+Password	Student@123
+
+Set the password as permanent if Cognito asks you to choose between temporary and permanent.
+Step 4 – Connect your application
+We will modify only login.html to authenticate directly against Cognito using the Amplify JavaScript library.
+
+The application will use:
+- User Pool ID
+- App Client ID
+- AWS Region: ap-south-1
+After successful login, redirect to Dashboard.html. Otherwise, redirect to Login_failure.html.
+Step 5 – Upload updated frontend
+Replace the existing login.html in S3 and invalidate the CloudFront cache.
