@@ -587,6 +587,7 @@ cat > lambda-bedrock-policy.json <<EOF
       "Sid": "KnowledgeBaseAccess",
       "Effect": "Allow",
       "Action": [
+        "bedrock:Retrieve",
         "bedrock:RetrieveAndGenerate"
       ],
       "Resource": "${KB_ARN}"
@@ -625,23 +626,39 @@ In your existing frontend directory, run:
 cat > lambda_function.py <<'PY'
 import json
 import os
+import logging
 import boto3
 
+# Configure application logging
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+# Initialize Amazon Bedrock Agent Runtime client
 bedrock = boto3.client(
     "bedrock-agent-runtime",
-    region_name=os.environ["AWS_REGION"]
+    region_name=os.environ["BEDROCK_REGION"]
 )
+
 
 def lambda_handler(event, context):
     try:
+        # Read the incoming API Gateway request
         body = json.loads(event.get("body") or "{}")
         question = body.get("question", "").strip()
 
+        # Validate user input
         if not question:
-            return response(400, {"error": "Please enter a question."})
+            return response(400, {
+                "error": "Please enter a question."
+            })
 
+        logger.info("Received chatbot question")
+
+        # Retrieve relevant documents and generate an answer
         result = bedrock.retrieve_and_generate(
-            input={"text": question},
+            input={
+                "text": question
+            },
             retrieveAndGenerateConfiguration={
                 "type": "KNOWLEDGE_BASE",
                 "knowledgeBaseConfiguration": {
@@ -651,11 +668,15 @@ def lambda_handler(event, context):
             }
         )
 
+        # Extract generated answer
         answer = result["output"]["text"]
 
+        # Extract source document references
         sources = []
+
         for citation in result.get("citations", []):
             for reference in citation.get("retrievedReferences", []):
+
                 location = reference.get("location", {})
                 s3_location = location.get("s3Location", {})
 
@@ -664,14 +685,19 @@ def lambda_handler(event, context):
                     "source": s3_location.get("uri", "")
                 })
 
+        logger.info("Bedrock response generated successfully")
+
         return response(200, {
             "answer": answer,
             "sources": sources
         })
 
-    except Exception:
+    except Exception as e:
+        # Log complete exception details in CloudWatch
+        logger.exception("Chatbot processing failed")
+
         return response(500, {
-            "error": "Unable to process your question at this time."
+            "error": f"{type(e).__name__}: {str(e)}"
         })
 
 
@@ -685,6 +711,7 @@ def response(status_code, body):
         "body": json.dumps(body)
     }
 PY
+
 
 zip lambda-function.zip lambda_function.py
 
@@ -859,8 +886,11 @@ cat > index.html <<'EOF'
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Day 2 | Bedrock RAG Assistant</title>
+
   <style>
-    * { box-sizing: border-box; }
+    * {
+      box-sizing: border-box;
+    }
 
     body {
       margin: 0;
@@ -875,8 +905,15 @@ cat > index.html <<'EOF'
       padding: 22px 30px;
     }
 
-    header h1 { margin: 0; font-size: 22px; }
-    header p { margin: 7px 0 0; color: #cbd5e1; }
+    header h1 {
+      margin: 0;
+      font-size: 22px;
+    }
+
+    header p {
+      margin: 7px 0 0;
+      color: #cbd5e1;
+    }
 
     .container {
       max-width: 900px;
@@ -904,6 +941,7 @@ cat > index.html <<'EOF'
       border-radius: 12px;
       line-height: 1.6;
       white-space: pre-wrap;
+      overflow-wrap: anywhere;
     }
 
     .user {
@@ -931,6 +969,7 @@ cat > index.html <<'EOF'
 
     input {
       flex: 1;
+      min-width: 0;
       padding: 14px;
       border: 1px solid #cbd5e1;
       border-radius: 8px;
@@ -947,7 +986,10 @@ cat > index.html <<'EOF'
       cursor: pointer;
     }
 
-    button:disabled { opacity: 0.6; cursor: wait; }
+    button:disabled {
+      opacity: 0.6;
+      cursor: wait;
+    }
 
     .hint {
       text-align: center;
@@ -955,19 +997,34 @@ cat > index.html <<'EOF'
       font-size: 13px;
       margin: 16px;
     }
+
+    @media (max-width: 600px) {
+      .input-area {
+        padding: 12px;
+      }
+
+      button {
+        padding: 0 16px;
+      }
+    }
   </style>
 </head>
+
 <body>
+
   <header>
     <h1>Bedrock RAG Assistant</h1>
     <p>Day 2 – Amazon Bedrock Knowledge Base Demo</p>
   </header>
 
   <main class="container">
+
     <section class="chat-box">
+
       <div id="messages">
         <div class="message assistant">
-          Hello! I am your AI knowledge assistant. Ask me a question about the documents in my knowledge base.
+          Hello! I am your AI knowledge assistant.
+          Ask me a question about the documents in my knowledge base.
         </div>
       </div>
 
@@ -981,9 +1038,13 @@ cat > index.html <<'EOF'
         >
         <button id="sendButton" type="submit">Send</button>
       </form>
+
     </section>
 
-    <p class="hint">Powered by Amazon Bedrock Knowledge Bases and Nova Lite</p>
+    <p class="hint">
+      Powered by Amazon Bedrock Knowledge Bases and Nova Lite
+    </p>
+
   </main>
 
   <script>
@@ -1002,11 +1063,19 @@ cat > index.html <<'EOF'
       content.textContent = text;
       message.appendChild(content);
 
-      if (sources.length) {
+      if (sources.length > 0) {
         const sourceBox = document.createElement("div");
         sourceBox.className = "sources";
-        sourceBox.textContent = "Sources: " +
-          [...new Set(sources.map(s => s.source).filter(Boolean))].join(", ");
+
+        const sourceNames = [
+          ...new Set(
+            sources.map(source => source.source).filter(Boolean)
+          )
+        ];
+
+        sourceBox.textContent =
+          "Sources: " + sourceNames.join(", ");
+
         message.appendChild(sourceBox);
       }
 
@@ -1018,9 +1087,11 @@ cat > index.html <<'EOF'
       event.preventDefault();
 
       const question = questionInput.value.trim();
+
       if (!question) return;
 
       addMessage(question, "user");
+
       questionInput.value = "";
       sendButton.disabled = true;
       sendButton.textContent = "Thinking...";
@@ -1028,26 +1099,49 @@ cat > index.html <<'EOF'
       try {
         const result = await fetch(API_URL, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json"
+          },
           body: JSON.stringify({ question })
         });
 
-        const data = await result.json();
+        const data = await result.json().catch(() => ({}));
 
         if (!result.ok) {
-          throw new Error(data.error || "The request could not be completed.");
+          throw new Error(
+            data.error || `API request failed with status ${result.status}`
+          );
         }
 
-        addMessage(data.answer, "assistant", data.sources || []);
+        if (!data.answer) {
+          throw new Error("The API response did not contain an answer.");
+        }
+
+        addMessage(
+          data.answer,
+          "assistant",
+          data.sources || []
+        );
+
       } catch (error) {
-        addMessage("Unable to get an answer. Please try again.", "assistant");
+
+        console.error("Chatbot request failed:", error);
+
+        addMessage(
+          `Error: ${error.message}`,
+          "assistant"
+        );
+
       } finally {
+
         sendButton.disabled = false;
         sendButton.textContent = "Send";
         questionInput.focus();
+
       }
     });
   </script>
+
 </body>
 </html>
 EOF
