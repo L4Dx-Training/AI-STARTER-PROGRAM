@@ -186,11 +186,7 @@ Create a DynamoDB read policy:
 
 Export Account ID
 
-You can retrieve it using:
 
-aws sts get-caller-identity --query Account --output text
-Then 
-export ACCOUNT_ID=< Value of account number >
 cat > dynamodb-read-policy.json <<'EOF'
 {
   "Version": "2012-10-17",
