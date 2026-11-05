@@ -196,7 +196,7 @@ cat > dynamodb-read-policy.json <<'EOF'
       "Action": [
         "dynamodb:GetItem"
       ],
-      "Resource": "arn:aws:dynamodb:ap-south-1:$ACCOUNT_ID:table/training-auth-users"
+      "Resource": "arn:aws:dynamodb:ap-south-1:${ACCOUNT_ID}:table/training-auth-users"
     }
   ]
 }
