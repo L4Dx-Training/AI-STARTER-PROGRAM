@@ -1,4 +1,5 @@
-ACCOUNT_ID=$(aws sts get-caller-identity \
+
+export ACCOUNT_ID=$(aws sts get-caller-identity \
   --query Account \
   --output text)
 ===================
