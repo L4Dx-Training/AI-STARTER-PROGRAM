@@ -231,7 +231,7 @@ chmod +x setup-windows-gitbash.sh
 Execute it:
 ./setup-windows-gitbash.sh
 
-
+export PATH="$(npm prefix -g)/bin:$PATH"
 
 =================================
 
@@ -414,6 +414,1885 @@ MODEL_INFERENCE_PROFILE_ARN=${MODEL_INFERENCE_PROFILE_ARN}
 EOF
 
 ======
+
+Step 12 – Start the agent locally with Amazon Nova Lite
+Objective: Start the generated Strands agent using the Amazon Nova Lite model.
+
+The APAC inference profile is supported from Mumbai (ap-south-1), and its correct model identifier is apac.amazon.nova-lite-v1:0. 
+Amazon Bedrock+1
+
+12.1 Set the model configuration
+From inside the StudentAgent directory, run:
+
+export AWS_REGION="ap-south-1"
+export AWS_DEFAULT_REGION="$AWS_REGION"
+
+export MODEL_PROVIDER="bedrock"
+export MODEL_ID="amazon.nova-lite-v1:0"
+
+export MODEL_INFERENCE_PROFILE_ARN="arn:aws:bedrock:${AWS_REGION}:${AWS_ACCOUNT_ID}:inference-profile/apac.amazon.nova-lite-v1:0"
+
+
+12.2 Start the local agent
+agentcore dev --mode browser
+
+Step 13 – Test the agent's basic response
+Objective: Confirm that the agent can communicate with Amazon Nova Lite before adding any student database tools.
+
+In the AgentCore Inspector browser:
+1. Open the chat/input area.
+2. Enter:
+Hello. Introduce yourself as a school student assistant.
+
+3. Submit the message.
+
+This test validates the basic path:
+
+Inspector → Local Strands Agent → Amazon Bedrock Nova Lite → Response
+
+It does not yet test Lambda or student database integration.
+
+
+===============
+Step 14 – Create the DynamoDB student database
+Objective: Create the student table and load sample records for our classroom demonstration.
+
+We will use the same table for all later stages: multiple tools, multiple agents and MCP.
+14.1 Set database resource names
+Run:
+export STUDENT_TABLE_NAME="StudentRecords"
+export STUDENT_CLASS_INDEX="ClassScoreIndex"
+
+
+14.2 Create the DynamoDB table definition
+Create the file:
+cat > student-records-table.json <<'EOF'
+{
+  "TableName": "StudentRecords",
+  "AttributeDefinitions": [
+    {
+      "AttributeName": "StudentId",
+      "AttributeType": "S"
+    },
+    {
+      "AttributeName": "Class",
+      "AttributeType": "S"
+    },
+    {
+      "AttributeName": "Score",
+      "AttributeType": "N"
+    }
+  ],
+  "KeySchema": [
+    {
+      "AttributeName": "StudentId",
+      "KeyType": "HASH"
+    }
+  ],
+  "GlobalSecondaryIndexes": [
+    {
+      "IndexName": "ClassScoreIndex",
+      "KeySchema": [
+        {
+          "AttributeName": "Class",
+          "KeyType": "HASH"
+        },
+        {
+          "AttributeName": "Score",
+          "KeyType": "RANGE"
+        }
+      ],
+      "Projection": {
+        "ProjectionType": "ALL"
+      }
+    }
+  ],
+  "BillingMode": "PAY_PER_REQUEST"
+}
+EOF
+
+
+14.3 Create the DynamoDB table
+aws dynamodb create-table \
+  --cli-input-json file://student-records-table.json \
+  --region "$AWS_REGION"
+
+
+Wait until DynamoDB reports that the table is ready:
+aws dynamodb wait table-exists \
+  --table-name "$STUDENT_TABLE_NAME" \
+  --region "$AWS_REGION"
+
+
+14.4 Insert sample student records
+Create the data file:
+cat > student-records-data.json <<'EOF'
+{
+  "StudentRecords": [
+    {
+      "PutRequest": {
+        "Item": {
+          "StudentId": {"S": "STU001"},
+          "FirstName": {"S": "Arjun"},
+          "LastName": {"S": "Menon"},
+          "FatherName": {"S": "Rajesh Menon"},
+          "MotherName": {"S": "Anitha Menon"},
+          "Age": {"N": "15"},
+          "Class": {"S": "10"},
+          "Medium": {"S": "English"},
+          "Score": {"N": "95"},
+          "State": {"S": "Kerala"},
+          "Rank": {"N": "1"}
+        }
+      }
+    },
+    {
+      "PutRequest": {
+        "Item": {
+          "StudentId": {"S": "STU002"},
+          "FirstName": {"S": "Priya"},
+          "LastName": {"S": "Sharma"},
+          "FatherName": {"S": "Amit Sharma"},
+          "MotherName": {"S": "Neha Sharma"},
+          "Age": {"N": "15"},
+          "Class": {"S": "10"},
+          "Medium": {"S": "Hindi"},
+          "Score": {"N": "92"},
+          "State": {"S": "Delhi"},
+          "Rank": {"N": "2"}
+        }
+      }
+    },
+    {
+      "PutRequest": {
+        "Item": {
+          "StudentId": {"S": "STU003"},
+          "FirstName": {"S": "Rahul"},
+          "LastName": {"S": "Nair"},
+          "FatherName": {"S": "Suresh Nair"},
+          "MotherName": {"S": "Lakshmi Nair"},
+          "Age": {"N": "15"},
+          "Class": {"S": "10"},
+          "Medium": {"S": "English"},
+          "Score": {"N": "89"},
+          "State": {"S": "Kerala"},
+          "Rank": {"N": "3"}
+        }
+      }
+    },
+    {
+      "PutRequest": {
+        "Item": {
+          "StudentId": {"S": "STU004"},
+          "FirstName": {"S": "Sneha"},
+          "LastName": {"S": "Patel"},
+          "FatherName": {"S": "Ramesh Patel"},
+          "MotherName": {"S": "Kavita Patel"},
+          "Age": {"N": "15"},
+          "Class": {"S": "10"},
+          "Medium": {"S": "Hindi"},
+          "Score": {"N": "85"},
+          "State": {"S": "Gujarat"},
+          "Rank": {"N": "4"}
+        }
+      }
+    },
+    {
+      "PutRequest": {
+        "Item": {
+          "StudentId": {"S": "STU005"},
+          "FirstName": {"S": "Vishnu"},
+          "LastName": {"S": "Krishnan"},
+          "FatherName": {"S": "Mohan Krishnan"},
+          "MotherName": {"S": "Rekha Krishnan"},
+          "Age": {"N": "14"},
+          "Class": {"S": "9"},
+          "Medium": {"S": "English"},
+          "Score": {"N": "94"},
+          "State": {"S": "Kerala"},
+          "Rank": {"N": "1"}
+        }
+      }
+    },
+    {
+      "PutRequest": {
+        "Item": {
+          "StudentId": {"S": "STU006"},
+          "FirstName": {"S": "Ananya"},
+          "LastName": {"S": "Singh"},
+          "FatherName": {"S": "Vikram Singh"},
+          "MotherName": {"S": "Pooja Singh"},
+          "Age": {"N": "14"},
+          "Class": {"S": "9"},
+          "Medium": {"S": "Hindi"},
+          "Score": {"N": "90"},
+          "State": {"S": "Uttar Pradesh"},
+          "Rank": {"N": "2"}
+        }
+      }
+    },
+    {
+      "PutRequest": {
+        "Item": {
+          "StudentId": {"S": "STU007"},
+          "FirstName": {"S": "Meera"},
+          "LastName": {"S": "Iyer"},
+          "FatherName": {"S": "Krishnan Iyer"},
+          "MotherName": {"S": "Sudha Iyer"},
+          "Age": {"N": "14"},
+          "Class": {"S": "9"},
+          "Medium": {"S": "English"},
+          "Score": {"N": "87"},
+          "State": {"S": "Tamil Nadu"},
+          "Rank": {"N": "3"}
+        }
+      }
+    },
+    {
+      "PutRequest": {
+        "Item": {
+          "StudentId": {"S": "STU008"},
+          "FirstName": {"S": "Aman"},
+          "LastName": {"S": "Verma"},
+          "FatherName": {"S": "Sanjay Verma"},
+          "MotherName": {"S": "Sunita Verma"},
+          "Age": {"N": "14"},
+          "Class": {"S": "9"},
+          "Medium": {"S": "Hindi"},
+          "Score": {"N": "82"},
+          "State": {"S": "Rajasthan"},
+          "Rank": {"N": "4"}
+        }
+      }
+    }
+  ]
+}
+EOF
+
+
+Load the records:
+aws dynamodb batch-write-item \
+  --request-items file://student-records-data.json \
+  --region "$AWS_REGION"
+
+
+14.5 What have we created?
+Database foundation created
+Student ID	Student	Class	Medium	Score
+STU001	Arjun Menon	10	English	95
+STU002	Priya Sharma	10	Hindi	92
+STU003	Rahul Nair	10	English	89
+STU004	Sneha Patel	10	Hindi	85
+STU005	Vishnu Krishnan	9	English	94
+STU006	Ananya Singh	9	Hindi	90
+STU007	Meera Iyer	9	English	87
+STU008	Aman Verma	9	Hindi	82
+
+Step 15 – Create the StudentLookupTool Lambda
+One combined implementation step
+Objective: Create a Lambda function that retrieves all students belonging to a specified class.
+
+We'll create the Lambda execution role, attach permissions, write the Python function, package it and deploy it.
+15.1 Define Lambda resource names
+Run from inside the StudentAgent directory:
+export LAMBDA_FUNCTION_NAME="StudentLookupTool"
+export LAMBDA_ROLE_NAME="StudentLookupExecutionRole"
+export LAMBDA_CODE_DIR="student-lookup-lambda"
+
+
+15.2 Create the Lambda IAM execution role
+Create the trust policy:
+cat > lambda-trust-policy.json <<'EOF'
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "lambda.amazonaws.com"
+      },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}
+EOF
+
+
+
+
+Create the role and attach the logging policy:
+aws iam create-role \
+  --role-name "$LAMBDA_ROLE_NAME" \
+  --assume-role-policy-document file://lambda-trust-policy.json
+
+aws iam attach-role-policy \
+  --role-name "$LAMBDA_ROLE_NAME" \
+  --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+
+Add permission to query the DynamoDB table and its index:
+cat > lambda-dynamodb-policy.json <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:Query"
+      ],
+      "Resource": [
+        "arn:aws:dynamodb:${AWS_REGION}:${AWS_ACCOUNT_ID}:table/${STUDENT_TABLE_NAME}",
+        "arn:aws:dynamodb:${AWS_REGION}:${AWS_ACCOUNT_ID}:table/${STUDENT_TABLE_NAME}/index/${STUDENT_CLASS_INDEX}"
+      ]
+    }
+  ]
+}
+EOF
+
+aws iam put-role-policy \
+  --role-name "$LAMBDA_ROLE_NAME" \
+  --policy-name StudentDatabaseQueryPolicy \
+  --policy-document file://lambda-dynamodb-policy.json
+
+
+Wait for the IAM role to become available:
+aws iam wait role-exists \
+  --role-name "$LAMBDA_ROLE_NAME"
+
+export LAMBDA_ROLE_ARN="arn:aws:iam::${AWS_ACCOUNT_ID}:role/${LAMBDA_ROLE_NAME}"
+
+---------------
+
+15.3 Create the Lambda function
+Create its source directory:
+mkdir -p "$LAMBDA_CODE_DIR"
+
+Step 15A – Create the Lambda source code
+From your existing StudentAgent directory, run this command:
+
+export LAMBDA_FUNCTION_NAME="StudentLookupTool"
+export LAMBDA_CODE_DIR="student-lookup-lambda"
+
+mkdir -p "$LAMBDA_CODE_DIR"
+
+cat > "$LAMBDA_CODE_DIR/lambda_function.py" <<'EOF'
+import os
+import boto3
+from decimal import Decimal
+from boto3.dynamodb.conditions import Key
+
+dynamodb = boto3.resource("dynamodb")
+table = dynamodb.Table(os.environ["STUDENT_TABLE_NAME"])
+
+
+def json_safe(value):
+    if isinstance(value, Decimal):
+        return int(value) if value % 1 == 0 else float(value)
+
+    if isinstance(value, list):
+        return [json_safe(item) for item in value]
+
+    if isinstance(value, dict):
+        return {key: json_safe(item) for key, item in value.items()}
+
+    return value
+
+
+def lambda_handler(event, context):
+    class_name = event.get("class_name")
+
+    if not class_name:
+        return {
+            "error": "class_name is required"
+        }
+
+    response = table.query(
+        IndexName="ClassScoreIndex",
+        KeyConditionExpression=Key("Class").eq(str(class_name)),
+        ScanIndexForward=False
+    )
+
+    students = response.get("Items", [])
+
+    return {
+        "class_name": str(class_name),
+        "student_count": len(students),
+        "students": json_safe(students)
+    }
+EOF
+
+Step 15B – Package the Lambda deployment code
+We will create a ZIP file containing the Lambda Python code. AWS Lambda will use this ZIP during deployment.
+
+Run:
+cat > package_lambda.py <<'EOF'
+import shutil
+
+source = "student-lookup-lambda"
+archive = "student-lookup-deployment"
+
+shutil.make_archive(archive, "zip", root_dir=source)
+
+print("Lambda deployment package created successfully.")
+print(archive + ".zip")
+EOF
+
+uv run --no-project --python 3.12 python package_lambda.py
+
+Step 15C – Deploy the Lambda function to AWS
+We will deploy the ZIP package to the existing Lambda function StudentLookupTool.
+
+Run:
+aws lambda update-function-code \
+  --function-name "$LAMBDA_FUNCTION_NAME" \
+  --zip-file fileb://student-lookup-deployment.zip \
+  --region "$AWS_REGION"
+
+
+Wait until AWS finishes updating the function:
+aws lambda wait function-updated \
+  --function-name "$LAMBDA_FUNCTION_NAME" \
+  --region "$AWS_REGION"
+
+
+aws lambda update-function-configuration \
+  --function-name "$LAMBDA_FUNCTION_NAME" \
+  --environment "Variables={STUDENT_TABLE_NAME=${STUDENT_TABLE_NAME}}" \
+  --region "$AWS_REGION"
+
+aws lambda wait function-updated \
+  --function-name "$LAMBDA_FUNCTION_NAME" \
+  --region "$AWS_REGION"
+
+
+cat > lambda-dynamodb-policy.json <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:Query"
+      ],
+      "Resource": [
+        "arn:aws:dynamodb:${AWS_REGION}:${AWS_ACCOUNT_ID}:table/${STUDENT_TABLE_NAME}",
+        "arn:aws:dynamodb:${AWS_REGION}:${AWS_ACCOUNT_ID}:table/${STUDENT_TABLE_NAME}/index/${STUDENT_CLASS_INDEX}"
+      ]
+    }
+  ]
+}
+EOF
+
+aws iam put-role-policy \
+  --role-name StudentLookupLambdaRole \
+  --policy-name StudentDatabaseQueryPolicy \
+  --policy-document '{
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Action": "dynamodb:Query",
+        "Resource": [
+          "arn:aws:dynamodb:ap-south-1:880252975568:table/StudentRecords",
+          "arn:aws:dynamodb:ap-south-1:880252975568:table/StudentRecords/index/ClassScoreIndex"
+        ]
+      }
+    ]
+  }'
+
+
+Step 15D – Test the deployed Lambda
+We will send a request asking for all students in Class 10.
+
+Create the test event:
+cat > lambda-test-event.json <<'EOF'
+{
+  "class_name": "10"
+}
+EOF
+
+
+Invoke the Lambda:
+aws lambda invoke \
+  --function-name "$LAMBDA_FUNCTION_NAME" \
+  --payload fileb://lambda-test-event.json \
+  --cli-binary-format raw-in-base64-out \
+  --region "$AWS_REGION" \
+  lambda-test-response.json
+
+cat lambda-test-response.json
+
+
+=====================
+
+
+Next step: We will connect this Lambda to the Strands Agent through a Python tool using Boto3 lambda.invoke. No API Gateway is required.
+
+Let's proceed to that integration next.
+
+
+Step 16 – Create the Strands Python tool
+First, we will create a separate Python module for the student lookup tool. This keeps the business integration separate from the agent's main code.
+
+From your StudentAgent directory, run:
+
+mkdir -p app/agent
+
+cat > app/agent/student_tools.py <<'EOF'
+import os
+import json
+import boto3
+
+from strands import tool
+
+
+@tool
+def student_lookup(class_name: str) -> dict:
+    """
+    Find all students belonging to a particular class.
+
+    Args:
+        class_name: The school class to search, such as 9 or 10.
+
+    Returns:
+        Student records ordered by score, highest first.
+    """
+
+    lambda_client = boto3.client(
+        "lambda",
+        region_name=os.environ.get("AWS_REGION", "ap-south-1")
+    )
+
+    response = lambda_client.invoke(
+        FunctionName=os.environ.get(
+            "STUDENT_LOOKUP_LAMBDA_NAME",
+            "StudentLookupTool"
+        ),
+        InvocationType="RequestResponse",
+        Payload=json.dumps({
+            "class_name": str(class_name)
+        })
+    )
+
+    result = json.loads(response["Payload"].read())
+
+    if "FunctionError" in response:
+        raise RuntimeError(f"Student lookup Lambda failed: {result}")
+
+    return result
+EOF
+
+Step 17 – Configure the Lambda name for the Strands Agent
+Our Python tool reads the Lambda function name from the STUDENT_LOOKUP_LAMBDA_NAME environment variable.
+
+Add it to your existing .env file:
+cat >> .env <<'EOF'
+STUDENT_LOOKUP_LAMBDA_NAME=StudentLookupTool
+EOF
+
+
+Also export it in the current terminal so the local AgentCore development process can access it:
+export STUDENT_LOOKUP_LAMBDA_NAME="StudentLookupTool"
+
+
+This keeps the Lambda function name configurable rather than hardcoding it into the Python tool.
+
+
+Step 18 – Identify the Agent entry point
+The Lambda tool is ready. Now we need to register it with the existing Strands Agent.
+
+Before changing anything, we need to preserve the AgentCore Runtime entry-point structure generated by the template. We will add the tool to the existing agent rather than replace its runtime configuration.
+
+Run:
+sed -n '1,200p' app/agent/main.py
+
+Step 18A – Register the student lookup tool
+
+cat > app/agent/main.py <<'EOF'
+from functools import lru_cache
+
+from strands import Agent, tool
+from strands.agent.conversation_manager.null_conversation_manager import NullConversationManager
+from bedrock_agentcore.runtime import BedrockAgentCoreApp
+
+from model.load import load_model
+from parse import parse_payload
+from memory.session import get_memory_session_manager
+from student_tools import student_lookup
+
+
+DEFAULT_SYSTEM_PROMPT = """
+You are a helpful school student assistant.
+
+When a user asks about students in a particular class,
+use the student_lookup tool to retrieve the records.
+
+Present the results clearly in a readable format.
+Do not invent student records or scores.
+"""
+
+
+tools = []
+
+
+@tool
+def add_numbers(a: int, b: int) -> int:
+    """Return the sum of two numbers."""
+    return a + b
+
+
+tools.append(add_numbers)
+tools.append(student_lookup)
+
+
+def _make_conversation_manager():
+    return NullConversationManager()
+
+
+@lru_cache(maxsize=128)
+def _get_agent(session_id: str, actor_id: str) -> Agent:
+    """Construct or retrieve the corresponding Strands agent."""
+
+    return Agent(
+        model=load_model(),
+        session_manager=get_memory_session_manager(session_id, actor_id),
+        conversation_manager=_make_conversation_manager(),
+        system_prompt=DEFAULT_SYSTEM_PROMPT,
+        tools=tools,
+    )
+
+
+def create_app():
+    app = BedrockAgentCoreApp()
+    log = app.logger
+
+    @app.entrypoint
+    async def invoke(payload, context):
+        log.info("Invoking Agent.....")
+
+        session_id = getattr(context, "session_id", None) or "default-session"
+        prompt, actor_id = parse_payload(payload)
+
+        log.info(
+            f"Invoking with session_id={session_id} and actor_id={actor_id}"
+        )
+
+        agent = _get_agent(session_id, actor_id)
+
+        async for event in agent.stream_async(prompt):
+            if not isinstance(event, dict) or "event" not in event:
+                continue
+
+            cbs = event["event"].get("contentBlockStart")
+
+            if cbs is not None and not cbs.get("start"):
+                continue
+
+            yield event
+
+    return app
+
+
+app = create_app()
+
+
+if __name__ == "__main__":
+    app.run()
+EOF
+
+
+===========
+
+Step 19 – Grant the Agent permission to invoke Lambda
+Our Strands tool uses Boto3 to invoke StudentLookupTool.
+
+Since you are testing locally with your existing AdministratorAccess credentials, no additional IAM permission is needed for the local test.
+
+However, when we deploy the agent to Amazon Bedrock AgentCore Runtime, its execution role must have permission to invoke this Lambda.
+
+We will configure that during the deployment stage.
+
+For now, let's test the Python integration locally.
+
+Run:
+agentcore dev --mode browser
+
+
+Once the Inspector opens, test:
+Show me all students in Class 10.
+Include their names and scores.
+
+===================
+
+
+Step 21 – Build the AgentCore deployment package
+First, we will validate and package the existing Strands Agent before deploying it to AWS.
+
+Make sure the local agentcore dev process is stopped (Ctrl + C).
+
+From your StudentAgent directory, run:
+agentcore build
+
+
+This prepares the Python agent for deployment and checks the project configuration.
+
+The deployment will include:
+- Amazon Nova Lite model configuration.
+- Strands Agent and its existing student_lookup tool.
+- AgentCore Runtime entry point.
+- Session management code.
+
+
+Step 22 – Deploy the agent to AWS
+Now we will deploy the existing agent to Amazon Bedrock AgentCore Runtime.
+
+Run:
+agentcore deploy
+
+
+The deployment will provision the required AWS resources, including:
+- AgentCore Runtime.
+- Runtime execution IAM role.
+- Deployment artifacts.
+- CloudWatch logging and observability.
+The first deployment may take several minutes. 
+Amazon Bedrock AgentCore+1
+
+
+Important: This deploys the agent, but we still need to grant its runtime execution role permission to invoke StudentLookupTool before the hosted chatbot can retrieve student records.
+
+(.venv) shinoj@Shinojs-MacBook-Air StudentAgent % agentcore status --json
+{
+  "projectName": "StudentAgent",
+  "target": "default",
+  "region": "ap-south-1",
+  "resources": [
+    {
+      "resourceType": "runtime",
+      "name": "agent",
+      "deploymentState": "deployed",
+      "arn": "arn:aws:bedrock-agentcore:ap-south-1:880252975568:runtime/StudentAgent_default_agent-GD1KaSABIU"
+    },
+    {
+      "resourceType": "memory",
+      "name": "agentMemory",
+      "deploymentState": "deployed",
+      "arn": "arn:aws:bedrock-agentcore:ap-south-1:880252975568:memory/StudentAgent_default_agentMemory-4jiVJg7sKL"
+    }
+  ]
+}
+(.venv) shinoj@Shinojs-MacBook-Air StudentAgent % 
+
+
+-----
+
+Step 23B – Get the execution role ARN
+Run this command:
+aws bedrock-agentcore-control get-agent-runtime \
+  --agent-runtime-id "$(agentcore status --json | python3 -c 'import sys,json; d=json.load(sys.stdin); print(next(r["arn"].split("/")[-1] for r in d["resources"] if r["resourceType"]=="runtime"))')" \
+  --region "$AWS_REGION" \
+  --query '{RuntimeArn:agentRuntimeArn,RuntimeId:agentRuntimeId,RoleArn:roleArn,Status:status}'
+
+Step 23A – Automatically retrieve Runtime details
+Run this command from your StudentAgent directory:
+export AGENTCORE_STATUS="$(agentcore status --json)"
+
+export RUNTIME_ARN="$(echo "$AGENTCORE_STATUS" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(next(r["arn"] for r in d["resources"] if r["resourceType"]=="runtime" and r["deploymentState"]=="deployed"))')"
+
+export RUNTIME_ID="${RUNTIME_ARN##*/}"
+
+export RUNTIME_NAME="$(echo "$AGENTCORE_STATUS" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(next(r["name"] for r in d["resources"] if r["resourceType"]=="runtime" and r["deploymentState"]=="deployed"))')"
+
+export AWS_ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+
+echo "Runtime name: $RUNTIME_NAME"
+echo "Runtime ID: $RUNTIME_ID"
+echo "Runtime ARN: $RUNTIME_ARN"
+echo "AWS Account: $AWS_ACCOUNT_ID"
+
+
+
+Step 23B – Retrieve the Runtime execution role
+Run:
+export RUNTIME_ROLE_ARN="$(aws bedrock-agentcore-control get-agent-runtime \
+  --agent-runtime-id "$RUNTIME_ID" \
+  --region "$AWS_REGION" \
+  --query 'roleArn' \
+  --output text)"
+
+export RUNTIME_ROLE_NAME="${RUNTIME_ROLE_ARN##*/}"
+
+echo "Runtime execution role: $RUNTIME_ROLE_NAME"
+echo "Runtime role ARN: $RUNTIME_ROLE_ARN"
+
+Step 24 – Grant AgentCore Runtime permission to invoke Lambda
+Our local agent could invoke Lambda using your AdministratorAccess credentials. The deployed agent uses its own execution role, so we must grant that role permission.
+
+We will grant only lambda:InvokeFunction on StudentLookupTool.
+
+Run:
+cat > runtime-lambda-policy.json <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "lambda:InvokeFunction"
+      ],
+      "Resource": "arn:aws:lambda:${AWS_REGION}:${AWS_ACCOUNT_ID}:function:StudentLookupTool"
+    }
+  ]
+}
+EOF
+
+
+Attach the policy to the Runtime execution role:
+aws iam put-role-policy \
+  --role-name "$RUNTIME_ROLE_NAME" \
+  --policy-name StudentLookupInvokePolicy \
+  --policy-document file://runtime-lambda-policy.json
+
+
+This gives the deployed Strands Agent permission to invoke the existing Lambda without granting it direct DynamoDB access.
+
+Step 25 – Test the deployed AgentCore Runtime
+Now we will test the cloud-hosted agent, not the local development server.
+
+Allow a few seconds for IAM permission propagation:
+sleep 10
+
+Step 26 – Configure the deployed Runtime
+Run this command in your existing terminal:
+
+aws bedrock-agentcore-control get-agent-runtime \
+  --agent-runtime-id "$RUNTIME_ID" \
+  --region "$AWS_REGION" \
+  --output json > runtime-current.json
+
+Now generate the update request automatically:
+
+python3 - <<'PY'
+import json
+
+with open("runtime-current.json") as f:
+    current = json.load(f)
+
+request = {
+    "agentRuntimeId": current["agentRuntimeId"],
+    "agentRuntimeArtifact": current["agentRuntimeArtifact"],
+    "roleArn": current["roleArn"]
+}
+
+# Preserve the existing network configuration.
+if "networkConfiguration" in current:
+    request["networkConfiguration"] = current["networkConfiguration"]
+
+# Preserve existing environment variables and add our two variables.
+env = current.get("environmentVariables") or {}
+
+env["MODEL_INFERENCE_PROFILE_ARN"] = (
+    "arn:aws:bedrock:ap-south-1:880252975568:"
+    "inference-profile/apac.amazon.nova-lite-v1:0"
+)
+env["STUDENT_LOOKUP_LAMBDA_NAME"] = "StudentLookupTool"
+
+request["environmentVariables"] = env
+
+with open("runtime-update-request.json", "w") as f:
+    json.dump(request, f, indent=2)
+
+print("Runtime update request prepared successfully.")
+PY
+
+Step 26B – Update the existing Runtime
+aws bedrock-agentcore-control update-agent-runtime \
+  --cli-input-json file://runtime-update-request.json \
+  --region "$AWS_REGION"
+
+export MODEL_INFERENCE_PROFILE_ARN="arn:aws:bedrock:${AWS_REGION}:${AWS_ACCOUNT_ID}:inference-profile/apac.amazon.nova-lite-v1:0"
+
+export STUDENT_LOOKUP_LAMBDA_NAME="StudentLookupTool"
+
+
+
+
+Step 26C – Wait for Runtime update and test
+First, wait until the Runtime is ready:
+until [ "$(aws bedrock-agentcore-control get-agent-runtime \
+  --agent-runtime-id "$RUNTIME_ID" \
+  --region "$AWS_REGION" \
+  --query status --output text)" = "READY" ]; do
+  sleep 10
+done
+echo "AgentCore Runtime is READY"
+
+Then invoke the deployed agent:
+agentcore invoke \
+  --runtime "$RUNTIME_NAME" \
+  --payload '{"prompt":"Show me all students in Class 10. Include their names and scores."}'
+
+===========
+
+Step 27 – Create the chatbot frontend.
+
+mkdir -p frontend
+
+cat > frontend/index.html <<'EOF'
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>School AI Assistant</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #f4f6fb;
+            color: #202938;
+        }
+
+        .app {
+            max-width: 1000px;
+            height: 100vh;
+            margin: auto;
+            display: flex;
+            flex-direction: column;
+            background: white;
+        }
+
+        .header {
+            padding: 20px 26px;
+            background: #172554;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .header h2 {
+            margin: 0;
+            font-size: 20px;
+        }
+
+        .header small {
+            color: #cbd5e1;
+        }
+
+        .status {
+            font-size: 12px;
+            color: #86efac;
+        }
+
+        .chat-area {
+            flex: 1;
+            overflow-y: auto;
+            padding: 28px;
+        }
+
+        .message {
+            max-width: 75%;
+            padding: 14px 17px;
+            margin-bottom: 18px;
+            border-radius: 12px;
+            line-height: 1.6;
+            white-space: pre-wrap;
+        }
+
+        .assistant {
+            background: #eef2ff;
+            margin-right: auto;
+        }
+
+        .user {
+            background: #dbeafe;
+            margin-left: auto;
+        }
+
+        .composer {
+            display: flex;
+            gap: 12px;
+            padding: 18px;
+            border-top: 1px solid #e5e7eb;
+        }
+
+        .composer input {
+            flex: 1;
+            padding: 15px;
+            border: 1px solid #cbd5e1;
+            border-radius: 9px;
+            font-size: 15px;
+            outline: none;
+        }
+
+        .composer button {
+            padding: 0 25px;
+            border: none;
+            border-radius: 9px;
+            background: #2563eb;
+            color: white;
+            font-size: 15px;
+            cursor: pointer;
+        }
+
+        .composer button:hover {
+            background: #1d4ed8;
+        }
+
+        .footer {
+            padding: 10px;
+            text-align: center;
+            font-size: 12px;
+            color: #64748b;
+        }
+
+        @media (max-width: 600px) {
+            .message {
+                max-width: 90%;
+            }
+
+            .header {
+                padding: 16px;
+            }
+
+            .chat-area {
+                padding: 16px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="app">
+
+        <header class="header">
+            <div>
+                <h2>School AI Assistant</h2>
+                <small>Powered by Amazon Nova Lite</small>
+            </div>
+            <div class="status">● Assistant UI ready</div>
+        </header>
+
+        <main class="chat-area" id="chatArea">
+            <div class="message assistant">
+                Hello! I am your School AI Assistant.
+
+                You can ask me questions about students, their classes,
+                scores and academic performance.
+
+                How can I help you today?
+            </div>
+        </main>
+
+        <form class="composer" id="chatForm">
+            <input
+                type="text"
+                id="messageInput"
+                placeholder="Ask something about students..."
+                autocomplete="off"
+                required
+            >
+            <button type="submit">Send</button>
+        </form>
+
+        <div class="footer">
+            School AI Assistant | AgentCore and Strands
+        </div>
+
+    </div>
+
+    <script>
+        const chatArea = document.getElementById("chatArea");
+        const chatForm = document.getElementById("chatForm");
+        const messageInput = document.getElementById("messageInput");
+
+        function addMessage(message, type) {
+            const element = document.createElement("div");
+            element.className = `message ${type}`;
+            element.textContent = message;
+
+            chatArea.appendChild(element);
+            chatArea.scrollTop = chatArea.scrollHeight;
+        }
+
+        chatForm.addEventListener("submit", function(event) {
+            event.preventDefault();
+
+            const message = messageInput.value.trim();
+
+            if (!message) return;
+
+            addMessage(message, "user");
+            messageInput.value = "";
+
+            addMessage(
+                "Your message has been captured. The AgentCore backend connection will be configured next.",
+                "assistant"
+            );
+        });
+    </script>
+</body>
+</html>
+EOF
+
+
+
+
+Step 27B – Launch the chatbot frontend locally
+Let's view the chatbot in your browser before connecting it to AWS.
+
+From your StudentAgent directory, run:
+cd frontend
+python3 -m http.server 5500
+
+
+Step 28 – Prepare the AgentCore API integration
+Before writing the frontend integration, we need to establish the correct API Gateway integration with the deployed AgentCore Runtime.
+
+Our target request flow is:
+Browser Chat UI
+      |
+      | HTTPS + Cognito JWT
+      v
+Amazon API Gateway
+      |
+      | IAM-authorized request
+      v
+AgentCore Runtime
+      |
+      v
+Strands Agent + Nova Lite
+      |
+      v
+StudentLookupTool Lambda
+      |
+      v
+DynamoDB
+
+
+We will use API Gateway REST API with Cognito authentication. The API Gateway integration must sign its request to AgentCore Runtime using AWS IAM credentials.
+Step 28A – Capture the AgentCore Runtime endpoint
+Return to your StudentAgent terminal (not the terminal running the frontend server).
+
+Run:
+export RUNTIME_ARN="$(aws bedrock-agentcore-control get-agent-runtime \
+  --agent-runtime-id "$RUNTIME_ID" \
+  --region "$AWS_REGION" \
+  --query 'agentRuntimeArn' \
+  --output text)"
+
+export RUNTIME_ENDPOINT="$(python3 -c \
+  'import os,urllib.parse; arn=os.environ["RUNTIME_ARN"]; region=os.environ["AWS_REGION"]; print(f"https://bedrock-agentcore.{region}.amazonaws.com/runtimes/{urllib.parse.quote(arn, safe=\"\")}/invocations?qualifier=DEFAULT")')"
+
+echo "Runtime ARN: $RUNTIME_ARN"
+echo "Runtime invocation URL: $RUNTIME_ENDPOINT"
+
+
+This retrieves the deployed Runtime endpoint automatically.
+
+We will use this value in the API Gateway integration rather than hardcoding an endpoint.
+
+
+Step 1 – Create the proxy Lambda execution role
+Run this from your current terminal in the frontend directory:
+
+
+cat > proxy-trust-policy.json <<'EOF'
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "lambda.amazonaws.com"
+      },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}
+EOF
+
+aws iam create-role \
+  --role-name StudentAgentProxyRole \
+  --assume-role-policy-document file://proxy-trust-policy.json
+
+aws iam attach-role-policy \
+  --role-name StudentAgentProxyRole \
+  --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+echo "Proxy Lambda execution role created."
+
+Step 2 – Grant the proxy Lambda permission to invoke AgentCore
+Run this command. It uses your existing $RUNTIME_ARN variable, so you don't need to copy the ARN.
+cat > proxy-agentcore-policy.json <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "bedrock-agentcore:InvokeAgentRuntime"
+      ],
+      "Resource": "${RUNTIME_ARN}"
+    }
+  ]
+}
+EOF
+
+aws iam put-role-policy \
+  --role-name StudentAgentProxyRole \
+  --policy-name InvokeStudentAgentRuntimePolicy \
+  --policy-document file://proxy-agentcore-policy.json
+
+echo "AgentCore invocation permission added."
+
+
+This allows the proxy Lambda to invoke your specific AgentCore Runtime, rather than granting access to every runtime.
+
+Step 3 – Create the frontend-to-AgentCore proxy Lambda code
+This Lambda will receive the user's chat message from the browser, invoke your deployed AgentCore Runtime, and return the response. It will also handle browser CORS requests.
+
+Run this command from your current frontend directory:
+
+mkdir -p ../agentcore-proxy
+
+cat > ../agentcore-proxy/lambda_function.py <<'PY'
+import os
+import json
+import uuid
+import boto3
+
+REGION = os.environ.get("AWS_REGION", "ap-south-1")
+RUNTIME_ARN = os.environ["AGENTCORE_RUNTIME_ARN"]
+
+agentcore = boto3.client(
+    "bedrock-agentcore",
+    region_name=REGION
+)
+
+
+def lambda_handler(event, context):
+
+    headers = {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "Content-Type",
+        "Access-Control-Allow-Methods": "OPTIONS,POST"
+    }
+
+    if event.get("requestContext", {}).get("http", {}).get("method") == "OPTIONS":
+        return {
+            "statusCode": 200,
+            "headers": headers,
+            "body": ""
+        }
+
+    try:
+        body = json.loads(event.get("body") or "{}")
+        prompt = body.get("message", "").strip()
+
+        if not prompt:
+            return {
+                "statusCode": 400,
+                "headers": headers,
+                "body": json.dumps({"error": "Message is required"})
+            }
+
+        session_id = body.get("sessionId") or str(uuid.uuid4())
+
+        response = agentcore.invoke_agent_runtime(
+            agentRuntimeArn=RUNTIME_ARN,
+            runtimeSessionId=session_id,
+            payload=json.dumps({
+                "prompt": prompt
+            }).encode("utf-8"),
+            contentType="application/json",
+            accept="text/event-stream"
+        )
+
+        response_text = response["response"].read().decode("utf-8")
+
+        return {
+            "statusCode": 200,
+            "headers": headers,
+            "body": json.dumps({
+                "response": response_text,
+                "sessionId": session_id
+            })
+        }
+
+    except Exception as error:
+        print(f"AgentCore invocation failed: {str(error)}")
+
+        return {
+            "statusCode": 500,
+            "headers": headers,
+            "body": json.dumps({
+                "error": "Unable to process your request."
+            })
+        }
+PY
+
+echo "Proxy Lambda code created."
+
+This uses a generated session ID when the browser does not supply one. The browser can reuse that ID for subsequent messages.
+
+
+
+Step 4 – Package the proxy Lambda
+We will package the Lambda code together with the latest Boto3 SDK. This ensures the Lambda has the bedrock-agentcore client required to invoke your runtime.
+
+Run:
+cd ../agentcore-proxy
+
+mkdir -p package
+
+uv pip install \
+  --python 3.12 \
+  --target package \
+  boto3
+
+cp lambda_function.py package/
+
+cd package
+zip -r ../student-agent-proxy.zip .
+cd ..
+
+echo "Lambda deployment package created."
+
+Step 5 – Deploy the proxy Lambda
+Now we will create the AWS Lambda function named StudentAgentProxy.
+
+Run this command:
+cd ..
+
+export PROXY_LAMBDA_NAME="StudentAgentProxy"
+
+export PROXY_ROLE_ARN="arn:aws:iam::${AWS_ACCOUNT_ID}:role/StudentAgentProxyRole"
+
+aws lambda create-function \
+  --function-name "$PROXY_LAMBDA_NAME" \
+  --runtime python3.12 \
+  --handler lambda_function.lambda_handler \
+  --role "$PROXY_ROLE_ARN" \
+  --zip-file fileb://agentcore-proxy/student-agent-proxy.zip \
+  --timeout 120 \
+  --memory-size 512 \
+  --environment "Variables={AGENTCORE_RUNTIME_ARN=${RUNTIME_ARN}}" \
+  --region "$AWS_REGION"
+
+aws lambda wait function-active \
+  --function-name "$PROXY_LAMBDA_NAME" \
+  --region "$AWS_REGION"
+
+echo "StudentAgentProxy deployed successfully."
+
+
+
+
+Step 6 – Create a public Lambda Function URL
+This gives your frontend a direct HTTPS endpoint to call the proxy Lambda. We will configure it with no authentication and allow browser requests.
+
+Run:
+export PROXY_LAMBDA_NAME="StudentAgentProxy"
+
+if aws lambda get-function-url-config \
+  --function-name "$PROXY_LAMBDA_NAME" \
+  --region "$AWS_REGION" >/dev/null 2>&1; then
+
+  aws lambda update-function-url-config \
+    --function-name "$PROXY_LAMBDA_NAME" \
+    --auth-type NONE \
+    --cors '{
+      "AllowOrigins": ["*"],
+      "AllowMethods": ["POST"],
+      "AllowHeaders": ["content-type"],
+      "MaxAge": 86400
+    }' \
+    --region "$AWS_REGION"
+
+else
+
+  aws lambda create-function-url-config \
+    --function-name "$PROXY_LAMBDA_NAME" \
+    --auth-type NONE \
+    --cors '{
+      "AllowOrigins": ["*"],
+      "AllowMethods": ["POST"],
+      "AllowHeaders": ["content-type"],
+      "MaxAge": 86400
+    }' \
+    --region "$AWS_REGION"
+
+fi
+
+aws lambda add-permission \
+  --function-name "$PROXY_LAMBDA_NAME" \
+  --statement-id FunctionURLPublicAccess \
+  --action lambda:InvokeFunctionUrl \
+  --principal "*" \
+  --function-url-auth-type NONE \
+  --region "$AWS_REGION" 2>/dev/null || true
+
+export PROXY_FUNCTION_URL="$(aws lambda get-function-url-config \
+  --function-name "$PROXY_LAMBDA_NAME" \
+  --region "$AWS_REGION" \
+  --query FunctionUrl \
+  --output text)"
+
+echo "=================================="
+echo "Public Agent API:"
+echo "$PROXY_FUNCTION_URL"
+echo "=================================="
+
+
+
+aws lambda add-permission \
+  --function-name StudentAgentProxy \
+  --statement-id FunctionURLInvokePublicAccess \
+  --action lambda:InvokeFunction \
+  --principal "*" \
+  --invoked-via-function-url \
+  --region "$AWS_REGION"
+
+
+cat > proxy-agentcore-policy.json <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "bedrock-agentcore:InvokeAgentRuntime",
+      "Resource": [
+        "${RUNTIME_ARN}",
+        "${RUNTIME_ARN}/runtime-endpoint/DEFAULT"
+      ]
+    }
+  ]
+}
+EOF
+
+aws iam put-role-policy \
+  --role-name StudentAgentProxyRole \
+  --policy-name InvokeStudentAgentRuntimePolicy \
+  --policy-document file://proxy-agentcore-policy.json
+
+echo "AgentCore runtime and endpoint permissions updated."
+
+
+
+Step 7 – Test the public chatbot backend
+Let's verify that the browser-facing endpoint can communicate with AgentCore and retrieve student records.
+
+Run this command:
+export CHAT_SESSION_ID="$(python3 -c 'import uuid; print(uuid.uuid4())')"
+
+curl -sS -X POST "$PROXY_FUNCTION_URL" \
+  -H "Content-Type: application/json" \
+  -d "{\"message\":\"Show me all students in Class 10. Include their names and scores.\",\"sessionId\":\"$CHAT_SESSION_ID\"}" \
+  | python3 -m json.tool
+
+
+Expected result: A JSON response containing the AgentCore response and a session ID. The agent should return the four Class 10 students.
+
+
+
+Step 10 – Connect the frontend to the AgentCore backend
+We will retain your existing HTML and CSS design and replace only the JavaScript.
+
+Run this command from the StudentAgent directory:
+
+export PROXY_FUNCTION_URL="$(aws lambda get-function-url-config \
+  --function-name StudentAgentProxy \
+  --region "$AWS_REGION" \
+  --query FunctionUrl \
+  --output text)"
+
+python3 - <<'PY'
+import os
+from pathlib import Path
+
+path = Path("frontend/index.html")
+html = path.read_text()
+
+url = os.environ["PROXY_FUNCTION_URL"]
+
+script = r'''
+<script>
+const API_URL = "__API_URL__";
+
+const chatArea = document.getElementById("chatArea");
+const chatForm = document.getElementById("chatForm");
+const messageInput = document.getElementById("messageInput");
+const sendButton = chatForm.querySelector("button");
+
+let sessionId = sessionStorage.getItem("studentAgentSession");
+
+if (!sessionId) {
+    sessionId = crypto.randomUUID();
+    sessionStorage.setItem("studentAgentSession", sessionId);
+}
+
+function addMessage(message, type) {
+    const element = document.createElement("div");
+    element.className = `message ${type}`;
+    element.textContent = message;
+    chatArea.appendChild(element);
+    chatArea.scrollTop = chatArea.scrollHeight;
+    return element;
+}
+
+function extractText(response) {
+    const lines = response.split(/\r?\n/);
+    const texts = [];
+
+    for (const line of lines) {
+        if (!line.startsWith("data:")) continue;
+
+        const data = line.substring(5).trim();
+        if (!data || data === "[DONE]") continue;
+
+        try {
+            const event = JSON.parse(data);
+            const delta = event.event?.contentBlockDelta?.delta?.text;
+            if (delta) texts.push(delta);
+        } catch {
+            // Ignore non-JSON SSE lines.
+        }
+    }
+
+    return texts.join("") || response;
+}
+
+chatForm.addEventListener("submit", async function(event) {
+    event.preventDefault();
+
+    const message = messageInput.value.trim();
+    if (!message) return;
+
+    addMessage(message, "user");
+    messageInput.value = "";
+    messageInput.disabled = true;
+    sendButton.disabled = true;
+
+    const reply = addMessage("Thinking...", "assistant");
+
+    try {
+        const response = await fetch(API_URL, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                message: message,
+                sessionId: sessionId
+            })
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+            throw new Error(result.error || "Request failed");
+        }
+
+        sessionId = result.sessionId || sessionId;
+        sessionStorage.setItem("studentAgentSession", sessionId);
+
+        reply.textContent = extractText(result.response || "No response received.");
+
+    } catch (error) {
+        reply.textContent = "Unable to contact the AI assistant: " + error.message;
+    } finally {
+        messageInput.disabled = false;
+        sendButton.disabled = false;
+        messageInput.focus();
+        chatArea.scrollTop = chatArea.scrollHeight;
+    }
+});
+</script>
+'''
+
+script = script.replace("__API_URL__", url)
+
+import re
+html, count = re.subn(
+    r"<script>.*?</script>",
+    lambda match: script,
+    html,
+    count=1,
+    flags=re.DOTALL
+)
+
+if count != 1:
+    raise SystemExit("Could not find the existing script block. No changes saved.")
+
+path.write_text(html)
+print("Frontend connected to StudentAgentProxy.")
+PY
+
+
+
+cd ~/student-ai-agent-training/StudentAgent/frontend
+
+cd ~/student-ai-agent-training/StudentAgent
+mkdir -p agentcore-proxy/package
+
+cat > agentcore-proxy/lambda_function.py <<'PY'
+import os
+import json
+import uuid
+import boto3
+
+REGION = os.environ.get("AWS_REGION", "ap-south-1")
+RUNTIME_ARN = os.environ["AGENTCORE_RUNTIME_ARN"]
+
+agentcore = boto3.client(
+    "bedrock-agentcore",
+    region_name=REGION
+)
+
+
+def lambda_handler(event, context):
+
+    headers = {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "Content-Type",
+        "Access-Control-Allow-Methods": "POST, OPTIONS"
+    }
+
+    method = event.get("requestContext", {}).get("http", {}).get("method")
+
+    if method == "OPTIONS":
+        return {
+            "statusCode": 200,
+            "headers": headers,
+            "body": ""
+        }
+
+    try:
+        body = json.loads(event.get("body") or "{}")
+        prompt = body.get("message", "").strip()
+
+        if not prompt:
+            return {
+                "statusCode": 400,
+                "headers": headers,
+                "body": json.dumps({"error": "Message is required"})
+            }
+
+        session_id = body.get("sessionId") or str(uuid.uuid4())
+
+        # AgentCore requires a session ID of at least 33 characters.
+        if len(session_id) < 33:
+            session_id = str(uuid.uuid4())
+
+        response = agentcore.invoke_agent_runtime(
+            agentRuntimeArn=RUNTIME_ARN,
+            runtimeSessionId=session_id,
+            payload=json.dumps({
+                "prompt": prompt
+            }).encode("utf-8"),
+            contentType="application/json",
+            accept="text/event-stream"
+        )
+
+        response_text = response["response"].read().decode("utf-8")
+
+        return {
+            "statusCode": 200,
+            "headers": headers,
+            "body": json.dumps({
+                "response": response_text,
+                "sessionId": session_id
+            })
+        }
+
+    except Exception as error:
+        print(f"AgentCore invocation failed: {str(error)}")
+
+        return {
+            "statusCode": 500,
+            "headers": headers,
+            "body": json.dumps({
+                "error": "Unable to process your request."
+            })
+        }
+PY
+
+rm -f agentcore-proxy/student-agent-proxy.zip
+
+cd agentcore-proxy
+
+cp lambda_function.py package/
+
+cd package
+
+zip -r ../student-agent-proxy.zip .
+
+cd ..
+
+aws lambda update-function-code \
+  --function-name StudentAgentProxy \
+  --zip-file fileb://student-agent-proxy.zip \
+  --region ap-south-1
+
+aws lambda wait function-updated \
+  --function-name StudentAgentProxy \
+  --region ap-south-1
+
+echo "StudentAgentProxy successfully updated."
+
+
+cd ~/student-ai-agent-training/StudentAgent
+cat > agentcore-proxy/lambda_function.py <<'PY'
+import os
+import json
+import uuid
+import boto3
+
+REGION = os.environ.get("AWS_REGION", "ap-south-1")
+RUNTIME_ARN = os.environ["AGENTCORE_RUNTIME_ARN"]
+
+agentcore = boto3.client(
+    "bedrock-agentcore",
+    region_name=REGION
+)
+
+
+def lambda_handler(event, context):
+
+    # Lambda Function URL handles CORS.
+    # Do not add Access-Control headers here.
+
+    method = event.get("requestContext", {}).get("http", {}).get("method")
+
+    if method == "OPTIONS":
+        return {
+            "statusCode": 200,
+            "body": ""
+        }
+
+    try:
+        body = json.loads(event.get("body") or "{}")
+        prompt = body.get("message", "").strip()
+
+        if not prompt:
+            return {
+                "statusCode": 400,
+                "headers": {"Content-Type": "application/json"},
+                "body": json.dumps({"error": "Message is required"})
+            }
+
+        session_id = body.get("sessionId") or str(uuid.uuid4())
+
+        if len(session_id) < 33:
+            session_id = str(uuid.uuid4())
+
+        response = agentcore.invoke_agent_runtime(
+            agentRuntimeArn=RUNTIME_ARN,
+            runtimeSessionId=session_id,
+            payload=json.dumps({
+                "prompt": prompt
+            }).encode("utf-8"),
+            contentType="application/json",
+            accept="text/event-stream"
+        )
+
+        response_text = response["response"].read().decode("utf-8")
+
+        return {
+            "statusCode": 200,
+            "headers": {"Content-Type": "application/json"},
+            "body": json.dumps({
+                "response": response_text,
+                "sessionId": session_id
+            })
+        }
+
+    except Exception as error:
+        print(f"AgentCore invocation failed: {str(error)}")
+
+        return {
+            "statusCode": 500,
+            "headers": {"Content-Type": "application/json"},
+            "body": json.dumps({
+                "error": "Unable to process your request."
+            })
+        }
+PY
+
+cp agentcore-proxy/lambda_function.py agentcore-proxy/package/
+
+cd agentcore-proxy
+rm -f student-agent-proxy.zip
+cd package
+zip -r ../student-agent-proxy.zip .
+cd ..
+
+aws lambda update-function-code \
+  --function-name StudentAgentProxy \
+  --zip-file fileb://student-agent-proxy.zip \
+  --region ap-south-1
+
+aws lambda wait function-updated \
+  --function-name StudentAgentProxy \
+  --region ap-south-1
+
+echo "Proxy Lambda updated successfully."
+
+
+
+Step 14 – Test the chatbot backend again
+Run this complete command from any terminal where AWS CLI is configured:
+URL=$(aws lambda get-function-url-config \
+  --function-name StudentAgentProxy \
+  --region ap-south-1 \
+  --query FunctionUrl \
+  --output text)
+
+SESSION_ID=$(python3 -c 'import uuid; print(uuid.uuid4())')
+
+curl -sS -X POST "$URL" \
+  -H "Content-Type: application/json" \
+  -d "{\"message\":\"Please list all students in Class 10 with their scores.\",\"sessionId\":\"$SESSION_ID\"}" \
+  | python3 -m json.tool
+
+
+
+python3 -m http.server 5500
+
+Test 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
