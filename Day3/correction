@@ -1,1808 +1,443 @@
-Student Assistant
-AWS AgentCore Implementation Guide
-
-Updated implementation guide | Steps 1–33 | ap-south-1
-
-Status convention
-
-COMPLETED – NO CHANGE REQUIRED: The step has already been completed successfully. Do not execute it again.
-
-The remaining steps contain the implementation instructions to follow.
-
-Step 1 – Configure AWS Region and Verify AWS Credentials
-
-COMPLETED – NO CHANGE REQUIRED
-
-1.1 Set AWS Region
-
-Execute:
-
-export AWS_REGION=ap-south-1
-
-export AWS_DEFAULT_REGION=$AWS_REGION
-
-1.2 Verify AWS credentials
-
-aws sts get-caller-identity
-
-ACCOUNT_ID=$(aws sts get-caller-identity \
-
---query Account \
-
---output text)
-
-COMPLETED – NO CHANGE REQUIRED
-
-─────────────────────────────────────────────
-
-Step 2 – Create the reusable Student Database
-
-COMPLETED – NO CHANGE REQUIRED
-
-We will create one DynamoDB table named Students.
-
-Design decision: This database will be shared by future AI agents. We will keep it independent of the current Student Assistant agent.
-
-2.1 Create DynamoDB table
-
-Execute:
-
-aws dynamodb create-table \
-
---table-name Students \
-
---attribute-definitions \
-
-AttributeName=student_id,AttributeType=S \
-
---key-schema \
-
-AttributeName=student_id,KeyType=HASH \
-
---billing-mode PAY_PER_REQUEST
-
-2.2 Wait until table is active
-
-aws dynamodb wait table-exists \
-
---table-name Students
-
-2.3 Verify
-
-aws dynamodb describe-table \
-
---table-name Students \
-
---query 'Table.{Name:TableName,Status:TableStatus,Key:KeySchema}'
-
-Step 3 – Insert Sample Student Records into DynamoDB
-
-COMPLETED – NO CHANGE REQUIRED
-
-Insert sample student records into DynamoDB
-
-We will insert 5 sample records into the reusable Students table.
-
-3.1 Create the sample data file
-
-Execute:
-
-mkdir -p ~/student-agent-demo/database
-
-cd ~/student-agent-demo/database
-
-cat > students.json <<'EOF'
-
-{
-
-"Students": [
-
-{"PutRequest":{"Item":{"student_id":{"S":"STU001"},"name":{"S":"Arun"},"class":{"N":"10"},"section":{"S":"A"},"gender":{"S":"Male"},"age":{"N":"15"},"email":{"S":"arun@example.com"}}}},
-
-{"PutRequest":{"Item":{"student_id":{"S":"STU002"},"name":{"S":"Meera"},"class":{"N":"10"},"section":{"S":"A"},"gender":{"S":"Female"},"age":{"N":"15"},"email":{"S":"meera@example.com"}}}},
-
-{"PutRequest":{"Item":{"student_id":{"S":"STU003"},"name":{"S":"Rahul"},"class":{"N":"9"},"section":{"S":"B"},"gender":{"S":"Male"},"age":{"N":"14"},"email":{"S":"rahul@example.com"}}}},
-
-{"PutRequest":{"Item":{"student_id":{"S":"STU004"},"name":{"S":"Anjali"},"class":{"N":"10"},"section":{"S":"B"},"gender":{"S":"Female"},"age":{"N":"15"},"email":{"S":"anjali@example.com"}}}},
-
-{"PutRequest":{"Item":{"student_id":{"S":"STU005"},"name":{"S":"Vishnu"},"class":{"N":"9"},"section":{"S":"A"},"gender":{"S":"Male"},"age":{"N":"14"},"email":{"S":"vishnu@example.com"}}}}
-
-]
-
-}
-
-EOF
-
-3.2 Insert records
-
-aws dynamodb batch-write-item \
-
---request-items file://students.json
-
-3.3 Verify records
-
-aws dynamodb scan \
-
---table-name Students \
-
---query 'Items[*].[student_id.S,name.S,class.N]' \
-
---output table
-
-─────────────────────────────────────────────
-
-Step 4 – Create IAM Role for Student Lookup Lambda
-
-COMPLETED – NO CHANGE REQUIRED
-
-We need an IAM execution role that allows Lambda to:
-
-- Write execution logs to CloudWatch.
-
-- Read student records from the Students DynamoDB table.
-
-First, create the Lambda trust policy.
-
-Run this from your project directory:
-
-mkdir -p ~/student-agent-demo/deployment
-
-cd ~/student-agent-demo/deployment
-
-Create the file:
-
-cat > lambda-trust-policy.json <<'EOF'
-
-{
-
-"Version": "2012-10-17",
-
-"Statement": [
-
-{
-
-"Effect": "Allow",
-
-"Principal": {
-
-"Service": "lambda.amazonaws.com"
-
-},
-
-"Action": "sts:AssumeRole"
-
-}
-
-]
-
-}
-
-EOF
-
-This allows the AWS Lambda service to assume this IAM role.
-
-Create the IAM role:
-
-aws iam create-role \
-
---role-name StudentLookupLambdaRole \
-
---assume-role-policy-document file://lambda-trust-policy.json
-
-Verify:
-
-aws iam get-role \
-
---role-name StudentLookupLambdaRole
-
-Step 5 – Attach permissions to Lambda IAM Role
-
-COMPLETED – NO CHANGE REQUIRED
-
-We need two permissions:
-
-1. CloudWatch Logs – so Lambda can write execution logs.
-
-2. DynamoDB Read – so Lambda can retrieve student records.
-
-5.1 Attach CloudWatch logging policy
-
-Execute:
-
-aws iam attach-role-policy \
-
---role-name StudentLookupLambdaRole \
-
---policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-
-5.2 Create DynamoDB read policy
-
-First, retrieve the Students table ARN:
-
-TABLE_ARN=$(aws dynamodb describe-table \
-
---table-name Students \
-
---query 'Table.TableArn' \
-
---output text)
-
-Create the policy file:
-
-cat > student-db-read-policy.json <<EOF
-
-{
-
-"Version": "2012-10-17",
-
-"Statement": [
-
-{
-
-"Effect": "Allow",
-
-"Action": [
-
-"dynamodb:GetItem",
-
-"dynamodb:Query",
-
-"dynamodb:Scan"
-
-],
-
-"Resource": "$TABLE_ARN"
-
-}
-
-]
-
-}
-
-EOF
-
-5.3 Attach inline policy
-
-aws iam put-role-policy \
-
---role-name StudentLookupLambdaRole \
-
---policy-name StudentDatabaseReadAccess \
-
---policy-document file://student-db-read-policy.json
-
-5.4 Verify
-
-aws iam list-role-policies \
-
---role-name StudentLookupLambdaRole
-
-─────────────────────────────────────────────
-
-Step 6 – Create Student Lookup Lambda code
-
-COMPLETED – NO CHANGE REQUIRED
-
-Now we will create one Python Lambda function that acts as the Student Lookup Tool for our AI Agent.
-
-This Lambda will support two operations:
-
-1. list_students – Retrieve all students or students belonging to a particular class.
-
-2. get_student – Retrieve an individual student using Student ID.
-
-We will use the same Lambda as a single tool for our first agent.
-
-6.1 Navigate to Lambda directory
-
-mkdir -p ~/student-agent-demo/lambda
-
-cd ~/student-agent-demo/lambda
-
-6.2 Create Python file
-
-Execute:
-
-cat > lambda_function.py <<'EOF'
-
-import os
-
-import json
-
-import boto3
-
-from decimal import Decimal
-
-dynamodb = boto3.resource("dynamodb")
-
-table = dynamodb.Table(os.environ["TABLE_NAME"])
-
-def convert_decimal(obj):
-
-if isinstance(obj, list):
-
-return [convert_decimal(i) for i in obj]
-
-if isinstance(obj, dict):
-
-return {k: convert_decimal(v) for k, v in obj.items()}
-
-if isinstance(obj, Decimal):
-
-return int(obj) if obj % 1 == 0 else float(obj)
-
-return obj
-
-def lambda_handler(event, context):
-
-action = event.get("action")
-
-if action == "get_student":
-
-student_id = event.get("student_id")
-
-if not student_id:
-
-return {
-
-"error": "student_id is required"
-
-}
-
-response = table.get_item(
-
-Key={"student_id": student_id}
-
-)
-
-student = response.get("Item")
-
-if not student:
-
-return {
-
-"message": "Student not found"
-
-}
-
-return {
-
-"student": convert_decimal(student)
-
-}
-
-elif action == "list_students":
-
-class_no = event.get("class")
-
-students = []
-
-scan_params = {}
-
-if class_no is not None:
-
-from boto3.dynamodb.conditions import Attr
-
-scan_params["FilterExpression"] = Attr("class").eq(int(class_no))
-
-while True:
-
-response = table.scan(**scan_params)
-
-students.extend(response.get("Items", []))
-
-if "LastEvaluatedKey" not in response:
-
-break
-
-scan_params["ExclusiveStartKey"] = response["LastEvaluatedKey"]
-
-return {
-
-"count": len(students),
-
-"students": convert_decimal(students)
-
-}
-
-else:
-
-return {
-
-"error": "Invalid action. Use list_students or get_student."
-
-}
-
-EOF
-
-6.3 Verify the file
-
-cat lambda_function.py
-
-Step 7 – Package the Lambda function
-
-COMPLETED – NO CHANGE REQUIRED
-
-We have created the Python code. Now we need to package it into a ZIP file because AWS Lambda accepts deployment packages in ZIP format.
-
-7.1 Navigate to Lambda directory
-
-cd ~/student-agent-demo/lambda
-
-7.2 Create ZIP package
-
-zip function.zip lambda_function.py
-
-7.3 Verify package
-
-unzip -l function.zip
-
-─────────────────────────────────────────────
-
-Step 8 – Deploy Student Lookup Lambda
-
-COMPLETED – NO CHANGE REQUIRED
-
-Now we will create the Lambda function in AWS.
-
-8.1 Create Lambda function
-
-Execute:
-
-cd ~/student-agent-demo/lambda
+Step 1 – Initialize the AWS environment
+No AWS resources will be created in this step
+Objective: Establish the AWS account, account name and region as shell variables. All subsequent commands will reuse these variables.
+
+For this training, we'll use:
+Parameter	Value
+Project name	student-ai-agent
+AWS Region	ap-south-1
+Account name	student-agent-training
+AWS account ID	Retrieved automatically
+Agent framework	Strands
+Runtime	Amazon Bedrock AgentCore
+
+=====
+1.1 Create a project folder
+Start a new Terminal session on your Mac.
 
 Run:
+mkdir -p ~/student-ai-agent-training
+cd ~/student-ai-agent-training
 
-aws lambda create-function \
 
---function-name StudentLookupTool \
+This creates the project workspace.
+1.2 Define the environment variables
+Run:
+export PROJECT_NAME="student-ai-agent"
+export ACCOUNT_NAME="student-agent-training"
 
---runtime python3.12 \
+export AWS_REGION="ap-south-1"
+export AWS_DEFAULT_REGION="$AWS_REGION"
 
---handler lambda_function.lambda_handler \
+export AWS_ACCOUNT_ID=$(aws sts get-caller-identity \
+  --query Account \
+  --output text)
 
---role $(aws iam get-role \
+export AWS_CALLER_ARN=$(aws sts get-caller-identity \
+  --query Arn \
+  --output text)
 
---role-name StudentLookupLambdaRole \
+1.3 Verify the environment
+Run:
+echo "PROJECT       : $PROJECT_NAME"
+echo "ACCOUNT NAME  : $ACCOUNT_NAME"
+echo "ACCOUNT ID    : $AWS_ACCOUNT_ID"
+echo "REGION        : $AWS_REGION"
+echo "CALLER ARN    : $AWS_CALLER_ARN"
 
---query 'Role.Arn' \
+=========
 
---output text) \
 
---zip-file fileb://function.zip \
+Step 2 – Install and verify development tools
+Objective: Prepare your MacBook to develop a Python-based Strands Agent and deploy it to Amazon Bedrock AgentCore.
 
---timeout 30 \
+We'll install and verify the tools before creating any AWS resources.
 
---memory-size 256 \
+The development environment will use:
+Tool	Purpose
+AWS CLI	Communicate with AWS
+Python 3.12 or later	Run the agent application
+uv	Manage Python environments and packages
+Node.js	Support development utilities where required
+Git	Manage project source code
+AgentCore starter toolkit	Develop and deploy agents to AgentCore
 
---environment "Variables={TABLE_NAME=Students}"
+2.1 Check what is already installed
+Run this block in your Terminal:
 
-8.2 Wait for deployment
+cat > setup-macos.sh <<'EOF'
+#!/bin/bash
+set -euo pipefail
 
-aws lambda wait function-active \
+echo "======================================"
+echo " Student AI Agent - macOS Setup"
+echo "======================================"
 
---function-name StudentLookupTool
+# Install Homebrew if it is not already installed
+if ! command -v brew >/dev/null 2>&1; then
+    echo "Installing Homebrew..."
+    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+fi
 
-8.3 Verify
+# Configure Homebrew for Apple Silicon or Intel Mac
+if [ -x /opt/homebrew/bin/brew ]; then
+    eval "$(/opt/homebrew/bin/brew shellenv)"
+elif [ -x /usr/local/bin/brew ]; then
+    eval "$(/usr/local/bin/brew shellenv)"
+fi
 
-aws lambda get-function \
+# Install Node.js and npm
+echo "Installing Node.js..."
+brew install node
 
---function-name StudentLookupTool \
+# Install uv
+echo "Installing uv..."
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
---query 'Configuration.{Name:FunctionName,Runtime:Runtime,State:State,Handler:Handler}'
+export PATH="$HOME/.local/bin:$PATH"
 
-─────────────────────────────────────────────
+# Install Python 3.12 using uv
+echo "Installing Python 3.12..."
+uv python install 3.12
 
-Step 9 – Test Student Lookup Lambda
+# Install AWS CLI v2
+echo "Installing AWS CLI..."
+curl -fsSL https://awscli.amazonaws.com/v2/install.sh | bash
 
-COMPLETED – NO CHANGE REQUIRED
+# Add user-local AWS CLI and uv paths
+export PATH="$HOME/.local/bin:$PATH"
 
-Before connecting Lambda to the AI Agent, we must verify that it can independently retrieve data from DynamoDB.
+# Install AgentCore CLI
+echo "Installing Amazon Bedrock AgentCore CLI..."
+npm install -g @aws/agentcore
 
-We will test two operations.
+echo ""
+echo "======================================"
+echo " Installation completed"
+echo "======================================"
 
-9.1 Test – List students in Class 10
+echo "Node.js:"
+node --version
 
-Navigate to the Lambda directory:
+echo "npm:"
+npm --version
 
-cd ~/student-agent-demo/lambda
+echo "uv:"
+uv --version
 
-Create the test input:
+echo "Python:"
+uv run --python 3.12 python --version
 
-cat > test-class.json <<'EOF'
+echo "AWS CLI:"
+aws --version
 
-{
+echo "AgentCore CLI:"
+agentcore --version
 
-"action": "list_students",
-
-"class": 10
-
-}
-
+echo ""
+echo "macOS development environment is ready."
 EOF
 
-Invoke Lambda:
+chmod +x setup-macos.sh
+Execute it:
 
-aws lambda invoke \
+./setup-macos.sh
 
---function-name StudentLookupTool \
+==============================================Windos=============================
 
---payload fileb://test-class.json \
+Step 2B – Create the Windows Git Bash installation script
+Open Git Bash, navigate to the training workspace and execute:
 
-response.json
 
-View the response:
+cat > setup-windows-gitbash.sh <<'EOF'
+#!/bin/bash
+set -euo pipefail
 
-cat response.json
+echo "======================================"
+echo " Student AI Agent - Windows Setup"
+echo "======================================"
 
-Expected: Arun, Meera and Anjali (3 students).
+# Confirm WinGet is available
+if ! powershell.exe -NoProfile -Command "Get-Command winget -ErrorAction Stop" >/dev/null 2>&1; then
+    echo "Windows Package Manager (winget) is required."
+    echo "Use Windows 11 with App Installer available."
+    exit 1
+fi
 
-9.2 Test – Get individual student
+# Install Node.js LTS
+echo "Installing Node.js LTS..."
+powershell.exe -NoProfile -Command \
+  "winget install --id OpenJS.NodeJS.LTS --exact --silent --accept-package-agreements --accept-source-agreements"
 
-Create another input:
+# Install AWS CLI v2
+echo "Installing AWS CLI..."
+powershell.exe -NoProfile -Command \
+  "winget install --id Amazon.AWSCLI --exact --silent --accept-package-agreements --accept-source-agreements"
 
-cat > test-student.json <<'EOF'
+# Install uv
+echo "Installing uv..."
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \
+  "irm https://astral.sh/uv/install.ps1 | iex"
 
-{
+# Refresh paths for this Git Bash session
+export PATH="$PATH:/c/Program Files/nodejs"
 
-"action": "get_student",
+if [ -n "${APPDATA:-}" ]; then
+    export PATH="$PATH:$(cygpath -u "$APPDATA")/npm"
+fi
 
-"student_id": "STU001"
+if [ -n "${USERPROFILE:-}" ]; then
+    export PATH="$PATH:$(cygpath -u "$USERPROFILE")/.local/bin"
+fi
 
-}
+# Install Python 3.12 using uv
+echo "Installing Python 3.12..."
+uv python install 3.12
 
+# Install AgentCore CLI
+npm install -g @aws/agentcore
+
+# Add npm global executable directory to PATH
+export PATH="$(npm prefix -g)/bin:$PATH"
+
+# Verify installation
+agentcore --version
+
+echo "Node.js:"
+node --version
+
+echo "npm:"
+npm --version
+
+echo "uv:"
+uv --version
+
+echo "Python:"
+uv run --python 3.12 python --version
+
+echo "AgentCore CLI:"
+agentcore --version
+
+echo ""
+echo "AWS CLI installation completed."
+echo "Close and reopen Git Bash before using AWS CLI."
+
+echo ""
+echo "Windows development environment is ready."
 EOF
 
-Invoke Lambda:
+chmod +x setup-windows-gitbash.sh
 
-aws lambda invoke \
+Execute it:
+./setup-windows-gitbash.sh
 
---function-name StudentLookupTool \
 
---payload fileb://test-student.json \
 
-response.json
+=================================
 
-View the result:
+Step 3 – Create the Python project environment
+Objective: Create an isolated Python 3.12 environment for our Strands Agent application.
 
-cat response.json
+We'll use uv to manage the Python environment and dependencies.
 
-Expected: Arun's student record.
+Run these commands from your project directory:
+mkdir -p agent
+cd agent
 
-─────────────────────────────────────────────
+export PATH=$PATH:~/.local/bin
+uv init --python 3.12
 
-Step 10 – Prepare Python AI Agent environment
-
-COMPLETED – NO CHANGE REQUIRED
-
-10.1 Navigate to the agent directory
-
-macOS / Linux:
-
-mkdir -p ~/student-agent-demo/agent
-
-cd ~/student-agent-demo/agent
-
-Windows – Git Bash:
-
-mkdir -p ~/student-agent-demo/agent
-
-cd ~/student-agent-demo/agent
-
-Same command works in both environments.
-
-10.2 Create Python virtual environment
-
-macOS / Linux:
-
-python3 -m venv .venv
-
-Windows – Git Bash:
-
-python -m venv .venv
-
-10.3 Activate virtual environment
-
-macOS / Linux:
+uv venv --python 3.12 .venv
 
 source .venv/bin/activate
 
-Windows – Git Bash:
 
-source .venv/Scripts/activate
-
-Expected: (.venv) appears in the terminal prompt.
-
-10.4 Create requirements.txt
-
-Same command for both:
-
-cat > requirements.txt <<'EOF'
-
-strands-agents
-
-bedrock-agentcore
-
-boto3
-
-EOF
-
-10.5 Upgrade pip
-
-macOS / Linux:
-
-python3 -m pip install --upgrade pip
-
-python3 -m pip install -r requirements.txt
-
-Windows – Git Bash:
-
-python -m pip install --upgrade pip
-
-python -m pip install -r requirements.txt
-
-10.6 Verify installation
-
-macOS / Linux:
-
-python3 -m pip show strands-agents
-
-python3 -m pip show bedrock-agentcore
-
-python3 -m pip show boto3
-
-Windows – Git Bash:
-
-python -m pip show strands-agents
-
-python -m pip show bedrock-agentcore
-
-python -m pip show boto3
-
-─────────────────────────────────────────────
-
-IMPORTANT STEP
-
---------------------------------
-
-─────────────────────────────────────────────
-
-Step 11 – Create the Student Agent application
-
-COMPLETED – NO CHANGE REQUIRED
-
-Now we will create the actual AI agent using Strands Agents.
-
-The agent will have:
-
-- LLM: Amazon Nova Micro through Amazon Bedrock.
-
-- Tool: One Python function named student_lookup.
-
-- Backend: The existing StudentLookupTool Lambda.
-
-- Runtime interface: Amazon Bedrock AgentCore.
-
-The Python tool will invoke your existing Lambda using Boto3. The LLM will decide when to call it—for example, when someone asks for a student's details or wants to list students in Class 10.
-
-This follows the Strands and AgentCore Python integration pattern documented by AWS.
-
-AWS Builder Center+1
-
-Amazon Nova Micro is invoked through the Bedrock APAC inference profile configured in the working agent.
-
-11.1 Create agent.py
-
-You should already be in:
-
-cd ~/student-agent-demo/agent
-
-macOS / Linux and Windows Git Bash: Use the same file-creation command:
-
-cd ~/student-agent-demo/agent
-
-cat <<'EOF' > agent.py
-
-import json
-
-import boto3
-
-from strands import Agent, tool
-
-from strands.models import BedrockModel
-
-from bedrock_agentcore import BedrockAgentCoreApp
-
-# AWS configuration
-
-AWS_REGION = "ap-south-1"
-
-LAMBDA_FUNCTION_NAME = "StudentLookupTool"
-
-# AWS Lambda client
-
-lambda_client = boto3.client(
-
-"lambda",
-
-region_name=AWS_REGION
-
-)
-
-# Student lookup tool
-
-@tool
-
-def student_lookup(
-
-action: str,
-
-student_id: str = "",
-
-class_no: int = 0
-
-) -> str:
-
-"""
-
-Retrieve student information from the Student Database.
-
-Use get_student with a student_id to retrieve one student.
-
-Use list_students to retrieve students.
-
-Optionally provide class_no to filter by class.
-
-"""
-
-if action not in ["get_student", "list_students"]:
-
-return "Invalid action. Use get_student or list_students."
-
-if action == "get_student" and not student_id:
-
-return "Please provide a student ID."
-
-# Prepare Lambda event
-
-event = {
-
-"action": action
-
-}
-
-if action == "get_student":
-
-event["student_id"] = student_id
-
-if action == "list_students" and class_no:
-
-event["class"] = class_no
-
-# Invoke StudentLookupTool Lambda
-
-response = lambda_client.invoke(
-
-FunctionName=LAMBDA_FUNCTION_NAME,
-
-InvocationType="RequestResponse",
-
-Payload=json.dumps(event).encode("utf-8")
-
-)
-
-result = response["Payload"].read().decode("utf-8")
-
-if response.get("FunctionError"):
-
-return f"Student lookup failed: {result}"
-
-return result
-
-# Configure Amazon Nova Micro through Bedrock
-
-model = BedrockModel(
-
-model_id="apac.amazon.nova-micro-v1:0",
-
-region_name=AWS_REGION,
-
-streaming=False
-
-)
-
-# Create Strands Agent
-
-agent = Agent(
-
-model=model,
-
-tools=[student_lookup],
-
-system_prompt="""
-
-You are a helpful Student Information Assistant.
-
-You can retrieve student information using the student_lookup tool.
-
-Rules:
-
-1. Use the tool whenever the user asks for student records.
-
-2. Never invent student information.
-
-3. If a student ID is missing, ask the user for it.
-
-4. Present retrieved information clearly.
-
-5. Do not modify or delete student records.
-
-"""
-
-)
-
-# AgentCore Runtime application
-
-app = BedrockAgentCoreApp()
-
-@app.entrypoint
-
-def invoke(payload):
-
-prompt = payload.get("prompt", "")
-
-if not isinstance(prompt, str) or not prompt.strip():
-
-return {
-
-"error": "Please provide a message in the prompt field."
-
-}
-
-result = agent(prompt)
-
-return {
-
-"response": str(result)
-
-}
-
-if __name__ == "__main__":
-
-app.run()
-
-EOF
-
-11.2 Verify the Python file
+What are we doing?
+Command	Purpose
+mkdir -p agent	Creates the agent project directory
+cd agent	Enters the directory
+uv init --python 3.12	Initializes the Python project
+uv venv --python 3.12 .venv	Creates an isolated environment
+source .venv/bin/activate	Activates the environment
+
+=============
+Step 4 – Install Strands Agents and AWS SDK
+Objective: Install the Python libraries required to build our Student AI Agent and communicate with AWS services.
+
+We will install:
+Package	Purpose
+strands-agents	Framework for developing AI agents
+boto3	Python SDK for invoking AWS services, including Lambda
+
+4.1 Install the packages
+Make sure you are inside the agent directory and the .venv environment is activated.
 
 Run:
-
-python -m py_compile agent.py
-
-─────────────────────────────────────────────
-
-Step 12 – Create the AgentCore Runtime IAM role
-
-COMPLETED – NO CHANGE REQUIRED
-
-The agent needs its own IAM role because it must:
-
-1. Invoke the existing StudentLookupTool Lambda.
-
-2. Invoke Amazon Nova Micro through Amazon Bedrock.
-
-3. Write application logs to CloudWatch.
-
-This is a separate role from StudentLookupLambdaRole. We will create the new role first.
-
-12.1 Create the trust policy
-
-The trust policy tells AWS that Amazon Bedrock AgentCore Runtime is allowed to assume this IAM role.
-
-Run the following commands in your terminal (macOS/Linux or Windows Git Bash):
-
-cd ~/student-agent-demo/deployment
-
-export AWS_REGION=ap-south-1
-
-ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-
-cat <<'EOF' > agentcore-trust-policy.json
-
-{
-
-"Version": "2012-10-17",
-
-"Statement": [
-
-{
-
-"Sid": "AllowAgentCoreRuntime",
-
-"Effect": "Allow",
-
-"Principal": {
-
-"Service": "bedrock-agentcore.amazonaws.com"
-
-},
-
-"Action": "sts:AssumeRole",
-
-"Condition": {
-
-"StringEquals": {
-
-"aws:SourceAccount": "ACCOUNT_ID_PLACEHOLDER"
-
-},
-
-"ArnLike": {
-
-"aws:SourceArn": "arn:aws:bedrock-agentcore:ap-south-1:ACCOUNT_ID_PLACEHOLDER:*"
-
-}
-
-}
-
-}
-
-]
-
-}
-
-EOF
-
-sed "s/ACCOUNT_ID_PLACEHOLDER/$ACCOUNT_ID/g" agentcore-trust-policy.json > agentcore-trust-policy-final.json
-
-12.2 Create the IAM role
-
-aws iam create-role \
-
---role-name StudentAgentCoreExecutionRole \
-
---assume-role-policy-document file://agentcore-trust-policy-final.json \
-
---description "Execution role for Student Agent on AgentCore Runtime"
-
-12.3 Verify
-
-aws iam get-role \
-
---role-name StudentAgentCoreExecutionRole \
-
---query 'Role.Arn' \
-
---output text
-
-─────────────────────────────────────────────
-
-Step 13 – Attach permissions to the AgentCore role
-
-COMPLETED – NO CHANGE REQUIRED
-
-We need three permissions:
-
-1. Invoke the StudentLookupTool Lambda.
-
-2. Invoke Amazon Nova Micro through Amazon Bedrock.
-
-3. Send logs to CloudWatch.
-
-13.1 Create the permissions policy
-
-Run these commands in your terminal:
-
-cd ~/student-agent-demo/deployment
-
-ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-
-cat <<'EOF' > student-agent-permissions.json
-
-{
-
-"Version": "2012-10-17",
-
-"Statement": [
-
-{
-
-"Sid": "InvokeStudentLookupLambda",
-
-"Effect": "Allow",
-
-"Action": "lambda:InvokeFunction",
-
-"Resource": "arn:aws:lambda:ap-south-1:ACCOUNT_ID_PLACEHOLDER:function:StudentLookupTool"
-
-},
-
-{
-
-"Sid": "InvokeNovaMicroModel",
-
-"Effect": "Allow",
-
-"Action": [
-
-"bedrock:InvokeModel",
-
-"bedrock:InvokeModelWithResponseStream"
-
-],
-
-"Resource": [
-
-"arn:aws:bedrock:*::foundation-model/*",
-
-"arn:aws:bedrock:ap-south-1:ACCOUNT_ID_PLACEHOLDER:inference-profile/*"
-
-]
-
-},
-
-{
-
-"Sid": "AgentCoreCloudWatchLogs",
-
-"Effect": "Allow",
-
-"Action": [
-
-"logs:CreateLogGroup",
-
-"logs:DescribeLogStreams",
-
-"logs:CreateLogStream",
-
-"logs:PutLogEvents",
-
-"logs:DescribeLogGroups"
-
-],
-
-"Resource": "*"
-
-}
-
-]
-
-}
-
-EOF
-
-sed "s/ACCOUNT_ID_PLACEHOLDER/$ACCOUNT_ID/g" student-agent-permissions.json > student-agent-permissions-final.json
-
-13.2 Attach the policy
-
-aws iam put-role-policy \
-
---role-name StudentAgentCoreExecutionRole \
-
---policy-name StudentAgentExecutionPermissions \
-
---policy-document file://student-agent-permissions-final.json
-
-13.3 Verify
-
-aws iam get-role-policy \
-
---role-name StudentAgentCoreExecutionRole \
-
---policy-name StudentAgentExecutionPermissions
-
-─────────────────────────────────────────────
-
-The AgentCore execution role now has permissions to invoke the student Lambda, access Bedrock models, and write CloudWatch logs.
-
-Step 14 – Prepare the AgentCore Runtime deployment
-
-COMPLETED – NO CHANGE REQUIRED
-
-Before deploying, we need to check that AgentCore Runtime is available in your selected AWS region, ap-south-1, and prepare the deployment configuration. We'll continue using Python—no Node.js or Docker.
-
-AWS confirms that AgentCore Runtime is supported in Mumbai (ap-south-1), so we can keep our existing region.
-
-Amazon Bedrock AgentCore+1
-
-─────────────────────────────────────────────
-
-Step 15 – Start the Student Agent locally
-
-COMPLETED – NO CHANGE REQUIRED
-
-Before deploying to AWS, we will start the AgentCore application on your Mac and verify that its local runtime server starts successfully.
-
-From the agent directory, with .venv activated, run:
-
-macOS / Linux:
-
-python agent.py
-
-Windows – Git Bash:
-
-python agent.py
-
-Expected behaviour:
-
-- The AgentCore application starts.
-
-- A local HTTP server listens on port 8080.
-
-- The terminal remains active, waiting for requests.
-
-Important
-
-Keep this terminal open. Do not stop the application yet.
-
-This starts the local AgentCore application. The agent invokes Nova Micro and accesses the student database when it receives a suitable request.
-
-Step 16 – Test the AgentCore health endpoint
-
-COMPLETED – NO CHANGE REQUIRED
-
-Open a second terminal window. Keep the first terminal running.
-
+uv add strands-agents boto3
+
+
+This command:
+- Downloads the packages.
+- Adds them as project dependencies in pyproject.toml.
+- Creates or updates uv.lock.
+- Installs them into the project's virtual environment.
+4.2 Verify installation
 Run:
+python -c "from strands import Agent; import boto3; print('Strands Agents: OK'); print('Boto3: OK')"
 
-curl http://localhost:8080/ping
 
-This is the AgentCore Runtime health-check endpoint.
+=================
 
-Expected response should indicate that the application is healthy.
+Step 5 – Generate the AgentCore Strands project
+Now we'll use the AgentCore CLI to generate the actual agent application.
 
-─────────────────────────────────────────────
+Important: The AgentCore template creates its own project structure and Python dependencies. Therefore, the manually created .venv and package installation in the earlier steps are not needed by the deployed AgentCore project. They were useful for understanding standalone Python development.
+5.1 Return to the training workspace
+cd ..
 
-Step 17 – Send the first question to the Student Agent
 
-COMPLETED – NO CHANGE REQUIRED
+Your location should now be:
+student-ai-agent-training/
 
-Now let's test the actual agent.
 
-Keep the first terminal running. In your second terminal, execute:
+5.2 Generate the Strands Agent project
+Run:
+agentcore create \
+  --name StudentAgent \
+  --template agent-python-strands
 
-curl -X POST http://localhost:8080/invocations \
 
--H "Content-Type: application/json" \
+This command generates:
+- A Python Strands Agent application.
+- AgentCore Runtime configuration.
+- AgentCore Memory configuration.
+- AWS deployment configuration.
+- Python dependency definitions.
+- Local development and deployment support.
 
--d '{"prompt":"Who is student STU001? Give me the student details."}'
+Step 6 – Start the AgentCore development environment
+cd StudentAgent
 
-17.2 Test listing students by class
+  agentcore dev
 
-In your second terminal, run:
+=============
 
-curl -X POST http://localhost:8080/invocations \
 
--H "Content-Type: application/json" \
+Step 7 – Configure Amazon Nova Lite
+Objective: Configure our Strands Agent to use Amazon Nova Lite through Amazon Bedrock.
+Parameter	Value
+Agent framework	Strands
+LLM provider	Amazon Bedrock
+Foundation model	Amazon Nova Lite
+Model ID	amazon.nova-lite-v1:0
+Region	ap-south-1
 
--d '{"prompt":"List all students studying in Class 10."}'
-
-─────────────────────────────────────────────
-
-Step 18 – Remove the Deprecated AgentCore Starter Toolkit
-
-Our local Student Agent is working successfully with Amazon Nova Micro.
-
-We will now use the current AWS AgentCore CLI (@aws/agentcore) for deployment. The older Python Starter Toolkit is deprecated and must not be used for this deployment workflow.
-
-18.1 Stop the local server
-
-In the terminal running python agent.py, press:
-
+7.1 Stop the local development server
+If it is still running, press:
 Ctrl + C
 
-18.2 Uninstall the deprecated Python Starter Toolkit
+7.2 Set the model environment variables
+Run:
+export MODEL_PROVIDER="bedrock"
+export MODEL_ID="amazon.nova-lite-v1:0"
 
-From your agent directory, with .venv activated:
+export MODEL_INFERENCE_PROFILE_ARN="arn:aws:bedrock:${AWS_REGION}:${AWS_ACCOUNT_ID}:inference-profile/apac.amazon.nova-lite-v1:0"
 
-cd ~/student-agent-demo/agent
 
-python -m pip uninstall bedrock-agentcore-starter-toolkit
+7.3 Verify the configuration
+echo "Model Provider: $MODEL_PROVIDER"
+echo "Model ID: $MODEL_ID"
+echo "Inference Profile: $MODEL_INFERENCE_PROFILE_ARN"
 
-When prompted, enter:
+7.4 Important model access requirement
+The AWS account must have access to Amazon Nova Lite in Amazon Bedrock, and the agent's IAM execution role must eventually have permission to invoke the inference profile.
 
-y
+We will configure the IAM permissions during the deployment preparation.
 
-macOS / Linux / Windows Git Bash: Same command.
+===============
+Step 8 – Inspect the Strands model configuration
+Objective: Identify where the generated project initializes its LLM so we can connect Amazon Nova Lite.
 
-18.3 Verify removal
+From inside the StudentAgent directory, run:
+cat app/agent/model/load.py
 
-python -m pip show bedrock-agentcore-starter-toolkit
 
-Expected: package not found.
+This displays the model-loading code generated by the AgentCore template.
 
-Important:
+We need to confirm:
+- Which model provider the template uses.
+- How it reads environment variables.
+- Where to configure our Amazon Bedrock inference profile.
 
-- Keep bedrock-agentcore installed.
+Step 9 – Configure Amazon Nova Lite
+Objective: Configure the Strands agent to use Amazon Nova Lite through Amazon Bedrock.
 
-- Do not uninstall strands-agents or boto3.
+Run this command from inside StudentAgent:
+cat > app/agent/model/load.py <<'EOF'
+import os
+from strands.models.bedrock import BedrockModel
 
-- Do not delete the existing deployment_package directory.
 
-- Do not delete the existing StudentAgentCoreExecutionRole.
+def load_model() -> BedrockModel:
+    """Load Amazon Nova Lite through Amazon Bedrock."""
 
-─────────────────────────────────────────────
+    model_id = os.environ.get("MODEL_INFERENCE_PROFILE_ARN")
 
-Step 19 – Install and Verify AgentCore CLI Prerequisites
+    if not model_id:
+        raise ValueError(
+            "MODEL_INFERENCE_PROFILE_ARN environment variable is not set"
+        )
 
-The current AgentCore CLI uses Node.js/npm. Python project dependency management and CodeZip packaging use uv. Docker is not required for CodeZip deployment.
+    return BedrockModel(
+        model_id=model_id,
+        region_name=os.environ.get("AWS_REGION", "ap-south-1")
+    )
+EOF
 
-19.1 Check existing installations
+
+======
+
+Step 10 – Configure the environment variables for AgentCore
+Objective: Ensure the AgentCore development process can access the model configuration.
+
+Your earlier export commands were executed in the parent Terminal session. Depending on how agentcore dev launches its environment, those variables may not automatically be available.
+
+We'll create a project-level .env file.
 
 Run:
+cat > .env <<EOF
+AWS_REGION=${AWS_REGION}
+AWS_DEFAULT_REGION=${AWS_REGION}
+MODEL_PROVIDER=bedrock
+MODEL_ID=amazon.nova-lite-v1:0
+MODEL_INFERENCE_PROFILE_ARN=${MODEL_INFERENCE_PROFILE_ARN}
+EOF
 
-node --version
+======
 
-npm --version
 
-python3 --version
 
-uv --version
 
-19.2 Install Node.js if it is not already installed
 
-macOS with Homebrew:
 
-brew install node
 
-Windows:
 
-Install a supported Node.js LTS release from:
 
-https://nodejs.org/
 
-19.3 Install uv if it is not already installed
 
-macOS / Linux:
 
-curl -LsSf https://astral.sh/uv/install.sh | sh
 
-Windows PowerShell:
 
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 
-19.4 Verify prerequisites
 
-node --version
 
-npm --version
 
-python3 --version
 
-uv --version
 
-Expected:
 
-- Node.js 20 or later.
 
-- npm available.
 
-- Python 3.10 or later.
 
-- uv available.
 
-If a required tool is already installed at a supported version, do not install it again.
 
-─────────────────────────────────────────────
 
-Step 20 – Install the Official AWS AgentCore CLI
-
-20.1 Install the CLI
-
-Execute:
-
-npm install -g @aws/agentcore
-
-20.2 Verify installation
-
-agentcore --version
-
-20.3 Verify AWS credentials
-
-aws sts get-caller-identity
-
-Confirm that the expected AWS account is displayed.
-
-20.4 Set the AWS region
-
-macOS / Linux / Windows Git Bash:
-
-export AWS_REGION=ap-south-1
-
-export AWS_DEFAULT_REGION=ap-south-1
-
-Verify:
-
-echo $AWS_REGION
-
-Expected:
-
-ap-south-1
-
-─────────────────────────────────────────────
-
-Step 21 – Create a New AgentCore Strands Project
-
-We will create a deployment project using the official AgentCore CLI. We will use CodeZip so that Docker is not required.
-
-Project configuration:
-
-- Project name: StudentAgentDeploy
-
-- Agent name: StudentAgent
-
-- Language: Python
-
-- Framework: Strands
-
-- Model provider: Bedrock
-
-- Memory: None
-
-- Build type: CodeZip
-
-- Region: ap-south-1
-
-21.1 Navigate to the project directory
-
-cd ~/student-agent-demo
-
-21.2 Create the AgentCore project
-
-agentcore create \
-
---project-name StudentAgentDeploy \
-
---name StudentAgent \
-
---language Python \
-
---framework Strands \
-
---model-provider Bedrock \
-
---memory none \
-
---build CodeZip
-
-21.3 Navigate into the generated project
-
-cd ~/student-agent-demo/StudentAgentDeploy
-
-21.4 Inspect the generated files
-
-ls -la
-
-The generated project contains the application entry point, AgentCore configuration, dependency definition and infrastructure code. We will use the actual generated structure in the next steps rather than assuming file paths.
-
-─────────────────────────────────────────────
-
-Step 22 – Integrate the Existing Student Agent Code
-
-We will reuse the working Student Agent logic already tested locally.
-
-Existing working source:
-
-~/student-agent-demo/agent/agent.py
-
-The generated AgentCore project has its own application entry point. Inspect the generated project and identify:
-
-- The Python application entry point.
-
-- The AgentCore Runtime entry-point configuration.
-
-- The generated dependency file.
-
-- The generated infrastructure directory.
-
-Integrate the existing Strands Agent logic into the generated application entry point.
-
-The integrated agent must retain:
-
-- Amazon Nova Micro model ID: apac.amazon.nova-micro-v1:0
-
-- Region: ap-south-1
-
-- Python tool: student_lookup
-
-- Lambda function: StudentLookupTool
-
-- The existing student lookup behaviour and system prompt.
-
-- AgentCore Runtime application integration.
-
-Do not rebuild the agent logic from scratch. Reuse the implementation that passed the local tests.
-
-─────────────────────────────────────────────
-
-Step 23 – Configure Python Dependencies
-
-The generated Python project uses pyproject.toml and uv to manage dependencies.
-
-The application requires:
-
-- strands-agents
-
-- bedrock-agentcore
-
-- boto3
-
-23.1 Inspect the generated dependency file
-
-From the generated project directory:
-
-cd ~/student-agent-demo/StudentAgentDeploy
-
-ls -la
-
-Review pyproject.toml and ensure the required application dependencies are declared.
-
-23.2 Synchronize dependencies
-
-uv sync
-
-23.3 Validate the Python application
-
-Use the generated project's development command and confirm that the application starts successfully. The exact command and entry-point path must match the files generated in Step 21.
-
-Do not use the old manual ARM64 pip packaging procedure. CodeZip manages the deployment packaging.
-
-─────────────────────────────────────────────
-
-Step 24 – Configure AgentCore Runtime IAM Permissions
-
-The AgentCore Runtime requires permission to:
-
-1. Invoke Amazon Nova Micro through Amazon Bedrock.
-
-2. Invoke the existing StudentLookupTool Lambda.
-
-3. Write application logs and required Runtime observability data.
-
-The new CLI project generates infrastructure code using AWS CDK. We will configure the Runtime permissions in that generated infrastructure.
-
-24.1 Inspect the generated infrastructure
-
-From the generated project directory:
-
-cd ~/student-agent-demo/StudentAgentDeploy
-
-ls -la
-
-Locate and inspect the generated CDK infrastructure files.
-
-24.2 Configure Lambda invocation permission
-
-The generated infrastructure must reference the existing Lambda function:
-
-StudentLookupTool
-
-Grant the AgentCore Runtime permission to invoke that Lambda using the CDK permission-grant mechanism.
-
-The implementation must use the actual Runtime construct and generated project structure. Do not assume a construct name before inspecting the generated code.
-
-24.3 Configure Bedrock model access
-
-Ensure the Runtime execution role has the required Bedrock model invocation permissions for the configured Amazon Nova Micro inference profile.
-
-24.4 Configure observability permissions
-
-Ensure the Runtime execution role has the permissions required by the generated AgentCore deployment for CloudWatch logging and Runtime observability.
-
-24.5 Review the execution role strategy
-
-The CLI/CDK deployment will manage the Runtime execution role and its permissions. The manually created StudentAgentCoreExecutionRole from the earlier local setup must not be assumed to be the role used by this deployment.
-
-Keep the existing manually created role until the new deployment is verified. Do not delete it as part of this step.
-
-─────────────────────────────────────────────
-
-Step 25 – Validate the AgentCore Deployment Configuration
-
-Before deployment, validate the generated project and its infrastructure.
-
-Confirm:
-
-- Agent name and entry point.
-
-- Python dependencies.
-
-- Strands framework configuration.
-
-- Amazon Nova Micro model configuration.
-
-- AWS region ap-south-1.
-
-- CodeZip build configuration.
-
-- Lambda invocation permission for StudentLookupTool.
-
-- Bedrock model invocation permission.
-
-- Runtime execution role and observability permissions.
-
-- AWS deployment identity permissions.
-
-Run the validation and build or dry-run commands supported by the installed AgentCore CLI version and generated project.
-
-Resolve any validation errors before deploying.
-
-─────────────────────────────────────────────
-
-Step 26 – Deploy the Student Agent to AgentCore Runtime
-
-Once validation is successful, deploy the project.
-
-From the generated project directory:
-
-cd ~/student-agent-demo/StudentAgentDeploy
-
-agentcore deploy
-
-The CLI provisions the required infrastructure and deploys the Student Agent to Amazon Bedrock AgentCore Runtime.
-
-The first deployment may take several minutes. If CDK bootstrap is required, complete it using the AWS account and region intended for this deployment.
-
-─────────────────────────────────────────────
-
-Step 27 – Verify and Test the Deployed Student Agent
-
-27.1 Check deployment status
-
-agentcore status
-
-Confirm that the Runtime is deployed and ready.
-
-27.2 Test individual student lookup
-
-agentcore invoke --prompt "Who is student STU001? Give me the student details."
-
-Expected: Arun's student information.
-
-27.3 Test class-based listing
-
-agentcore invoke --prompt "List all students studying in Class 10."
-
-Expected: Arun, Meera and Anjali.
-
-27.4 Verify Runtime logs
-
-Open CloudWatch Logs and inspect the AgentCore Runtime logs.
-
-Confirm that:
-
-- The Runtime started successfully.
-
-- The agent invoked Amazon Nova Micro.
-
-- The student_lookup tool was executed when required.
-
-- StudentLookupTool returned the student records.
-
-- The Runtime returned the response successfully.
-
-─────────────────────────────────────────────
-
-Step 28 – Create the Chat Backend Lambda
-
-We will create a new Lambda function named:
-
-StudentChatBackend
-
-This Lambda will:
-
-1. Receive the user's message from API Gateway.
-
-2. Validate the incoming request.
-
-3. Invoke the deployed AgentCore Runtime.
-
-4. Receive the agent response.
-
-5. Return the response to API Gateway.
-
-The Strands Agent code will remain in AgentCore Runtime. The Chat Backend Lambda will act as the integration layer between API Gateway and AgentCore Runtime.
-
-Create a separate Lambda execution role with the required permissions to invoke the deployed AgentCore Runtime.
-
-─────────────────────────────────────────────
-
-Step 29 – Create Amazon API Gateway REST API
-
-Create a REST API named:
-
-StudentAssistantAPI
-
-Create the resource and method:
-
-POST /chat
-
-Integration:
-
-API Gateway
-
-|
-
-+-- POST /chat
-
-|
-
-+-- StudentChatBackend Lambda
-
-Configure CORS so that the browser-based chat UI can call the API.
-
-Deploy the API and record the Invoke URL for the chat frontend.
-
-─────────────────────────────────────────────
-
-Step 30 – Create the Student Assistant Chat UI
-
-Create the frontend file:
-
-chat.html
-
-Technology:
-
-- HTML5
-
-- CSS3
-
-- Vanilla JavaScript (ES6)
-
-- No React, Angular or Vue.
-
-The chat interface will contain:
-
-- Student Assistant title.
-
-- Chat message area.
-
-- User message styling.
-
-- Assistant message styling.
-
-- Text input.
-
-- Send button.
-
-- Loading indicator.
-
-- Error handling.
-
-JavaScript will send the user's message to the API Gateway endpoint:
-
-POST /chat
-
-The UI will display the response returned by StudentChatBackend.
-
-─────────────────────────────────────────────
-
-Step 31 – Host the Chat UI on Amazon S3
-
-Create or use an S3 bucket for the frontend.
-
-Proposed structure:
-
-student-assistant-ui/
-
-|
-
-+-- chat.html
-
-+-- css/
-
-+-- js/
-
-Upload the frontend files to the S3 bucket.
-
-Use the selected S3 hosting approach for the frontend origin. For a production-oriented setup, keep the bucket private and serve it through CloudFront Origin Access Control.
-
-─────────────────────────────────────────────
-
-Step 32 – Configure Amazon CloudFront
-
-Create a CloudFront distribution with the S3 bucket as the origin.
-
-Configure:
-
-- S3 origin.
-
-- Origin Access Control if the bucket is private.
-
-- Default root object: chat.html.
-
-- Appropriate cache behaviour.
-
-- HTTPS access.
-
-The user will access the Student Assistant through the CloudFront distribution URL.
-
-─────────────────────────────────────────────
-
-Step 33 – End-to-End Testing
-
-Test the complete application through the browser.
-
-Test 1:
-
-Who is student STU001?
-
-Expected: The assistant retrieves Arun's details from DynamoDB.
-
-Test 2:
-
-List all students studying in Class 10.
-
-Expected: The assistant lists Arun, Meera and Anjali.
-
-Test 3:
-
-Is student STU010 available?
-
-Expected: The assistant reports that the student was not found.
-
-Test 4:
-
-What is the age of Meera?
-
-Expected: The assistant retrieves Meera's record and reports her age.
-
-Verify the complete request path:
-
-Browser
-
-|
-
-v
-
-CloudFront
-
-|
-
-v
-
-S3 – Chat UI
-
-|
-
-v
-
-API Gateway
-
-|
-
-v
-
-StudentChatBackend Lambda
-
-|
-
-v
-
-AgentCore Runtime
-
-|
-
-v
-
-Strands Agent + Amazon Nova Micro
-
-|
-
-v
-
-student_lookup Python tool
-
-|
-
-v
-
-StudentLookupTool Lambda
-
-|
-
-v
-
-DynamoDB – Students
-
-Confirm that the assistant returns database-backed information and does not invent student records.
