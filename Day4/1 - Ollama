@@ -1,1 +1,222 @@
+You can host Ollama + Meta Llama models on an AWS EC2 instance and provide a ChatGPT-like web interface where users can interact with your privately hosted AI model.
 
+The simplest and most practical architecture is:
+1. Proposed architecture
+Users / Browser
+
+ChatGPT-like user experience
+
+
+Open WebUI
+
+Chat interface • Chat history • Model selection • User management
+
+
+Ollama
+
+Model runtime and inference API
+
+
+Meta Llama Model
+
+Llama 3.1 / Llama 3.3 or another supported model
+
+
+AWS EC2
+
+GPU or CPU instance • EBS storage
+
+
+What each component does:
+Component	Purpose
+EC2	Hosts the complete solution
+Ollama	Downloads, manages and runs LLMs
+Llama	The actual language model
+Open WebUI	Provides the ChatGPT-like interface
+EBS	Stores downloaded model files and application data
+
+The important distinction: Ollama is not the LLM. It is the runtime that runs the LLM. Open WebUI is the frontend.
+2. EC2 instance sizing
+The instance selection depends on which Llama model you want to run.
+Model	Approx. model download	Suggested starting configuration
+Llama 3.2 1B	1.3 GB	2 vCPU, 8 GB RAM
+Llama 3.2 3B	2 GB	2–4 vCPU, 8–16 GB RAM
+Llama 3.1 8B	4.9 GB	4 vCPU, 16 GB RAM; GPU preferred
+Llama 3.3 70B	40+ GB	Multi-GPU/high-memory configuration
+
+These are approximate quantized model sizes; actual memory requirements also depend on context length and concurrent users. 
+Ollama English Documentation+1
+
+
+My recommendation for your initial deployment:
+Recommended starting point
+EC2: g5.xlarge
+4
+vCPUs
+
+16 GB
+System RAM
+
+24 GB
+NVIDIA A10G GPU memory
+
+100 GB
+EBS gp3 (initial allocation)
+
+
+Suitable for experimenting with Llama 3.1 8B and a small number of concurrent users.
+
+AWS also lists G6 instances in Mumbai (ap-south-1). You can consider a G6 instance with an NVIDIA L4 GPU as an alternative. Check your account's GPU quota and instance availability before launching. 
+Amazon EC2
+
+3. Implementation procedure
+We can implement this in six phases.
+1. Launch EC2
+   - Ubuntu 24.04 LTS
+   - g5.xlarge
+   - 100 GB gp3 EBS
+   - Allocate an Elastic IP if you need a stable public endpoint.
+2. Install NVIDIA drivers and Docker
+   
+   Install the GPU drivers and verify that the EC2 instance recognizes the GPU.
+3. Install Ollama
+   
+   Install Ollama and download the Llama model.
+4. Test the LLM
+   
+   Test the model through Ollama CLI and its REST API.
+5. Install Open WebUI
+   
+   Run Open WebUI using Docker and connect it to Ollama.
+6. Configure secure access
+   
+   Provide HTTPS access, authentication, persistent storage and appropriate network restrictions.
+4. Actual installation commands
+The following is the proposed implementation using Ubuntu, native Ollama and Docker-based Open WebUI.
+Step 1 – Launch EC2
+In AWS Console:
+1. Navigate to EC2 → Launch Instance.
+2. Name: ollama-llm-server.
+3. AMI: Ubuntu Server 24.04 LTS.
+4. Instance type: g5.xlarge.
+5. Storage: 100 GB gp3.
+6. Create or select an SSH key pair.
+Security group:
+Port	Purpose	Access
+22	SSH	Your public IP only
+3000	Open WebUI (initial testing)	Your public IP only
+11434	Ollama API	Do not expose publicly
+443	HTTPS (later)	Authorized users
+
+Step 2 – Connect to EC2
+ssh -i your-key.pem ubuntu@EC2-PUBLIC-IP
+
+
+Update Ubuntu:
+sudo apt update
+sudo apt upgrade -y
+
+
+Step 3 – Install and verify NVIDIA drivers
+Install the recommended NVIDIA driver:
+sudo ubuntu-drivers install
+
+
+Reboot:
+sudo reboot
+
+
+Reconnect and verify:
+nvidia-smi
+
+
+You should see the NVIDIA A10G GPU and its memory.
+
+For Docker-based GPU workloads, install NVIDIA Container Toolkit as well. Ollama running natively can use the installed NVIDIA drivers directly.
+Step 4 – Install Ollama
+curl -fsSL https://ollama.com/install.sh | sh
+
+
+Check:
+ollama --version
+
+
+Download Llama:
+ollama pull llama3.1:8b
+
+
+Run the model:
+ollama run llama3.1:8b
+
+
+Try:
+Explain AWS EC2 in simple terms.
+
+
+You now have a working Llama model running locally on EC2. Ollama manages the model download and inference. 
+GitHub+1
+
+Step 5 – Configure Ollama for Open WebUI
+Ollama normally listens on localhost. We need to allow the Open WebUI Docker container to communicate with it.
+
+Create a systemd override:
+sudo systemctl edit ollama
+
+
+Add:
+[Service]
+Environment="OLLAMA_HOST=0.0.0.0:11434"
+
+
+Save and exit.
+
+Restart Ollama:
+sudo systemctl daemon-reload
+sudo systemctl restart ollama
+
+
+Verify:
+curl http://localhost:11434/api/tags
+
+
+You should see the downloaded Llama model.
+
+Security note: Do not add port 11434 to the EC2 security group's inbound rules. We will use it internally between the services. 
+docs.openwebui.com+1
+
+Step 6 – Install Docker and Open WebUI
+Install Docker:
+sudo apt install docker.io -y
+
+
+Start Docker:
+sudo systemctl enable --now docker
+
+
+Create persistent storage:
+sudo docker volume create open-webui
+
+
+Start Open WebUI:
+sudo docker run -d \
+  -p 3000:8080 \
+  --add-host=host.docker.internal:host-gateway \
+  -e OLLAMA_BASE_URL=http://host.docker.internal:11434 \
+  -e WEBUI_SECRET_KEY="$(openssl rand -hex 32)" \
+  -v open-webui:/app/backend/data \
+  --name open-webui \
+  --restart always \
+  ghcr.io/open-webui/open-webui:main
+
+
+This configuration:
+- Runs Open WebUI in a Docker container.
+- Connects it to Ollama running on the EC2 host.
+- Persists chat history and user data.
+- Enables the WebUI authentication mechanism.
+This follows the official Open WebUI deployment approach. 
+docs.openwebui.com+1
+
+Step 7 – Access your ChatGPT-like interface
+Open your browser:
+http://EC2-PUBLIC-IP:3000
