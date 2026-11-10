@@ -1,0 +1,32 @@
+Read `docs/BRD-001-Role-Based-Login-Application.md` and build the application using KIRO Spec-driven Development.
+
+Follow these stages:
+1. Requirements
+2. Architecture & Design
+3. Task Planning
+4. Implementation
+5. Functional & Integration Testing
+6. Deployment preparation
+
+**Technology stack:**
+- Frontend: HTML, CSS, Vanilla JavaScript
+- Hosting: S3 + CloudFront
+- Backend: Python AWS Lambda
+- API: API Gateway REST API
+- Database: DynamoDB
+- Infrastructure: AWS SAM / CloudFormation
+
+**Instructions:**
+- Implement Admin and Normal User login with RBAC.
+- Provide separate dashboards and Logout.
+- Seed one Admin and one Normal User.
+- Enforce authorization at backend.
+- Use secure password hashing and JWT authentication.
+- Follow the BRD without adding extra features.
+- No React, Angular, Vue or Terraform.
+- Perform only basic functional and integration tests. No elaborate testing.
+- Work one task at a time.
+- Review each stage before proceeding.
+- Do not deploy without my approval.
+
+Start with Requirements and proceed stage by stage.
