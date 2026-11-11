@@ -1,0 +1,16 @@
+{
+  "httpMethod": "POST",
+  "headers": {
+    "Content-Type": "application/json"
+  },
+  "requestContext": {
+    "authorizer": {
+      "claims": {
+        "sub": "sample-user",
+        "email": "student@example.com"
+      }
+    }
+  },
+  "body": "{\"question\": \"What is this knowledge base about?\"}",
+  "isBase64Encoded": false
+}
