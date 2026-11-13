@@ -1,63 +1,68 @@
 /**
- * AI STARTER PROGRAM - Feedback survey response collector
- *
- * Setup:
- * 1. Create a new Google Sheet.
- * 2. Open Extensions > Apps Script.
- * 3. Replace the editor contents with this file.
- * 4. Deploy > New deployment > Web app.
- * 5. Execute as: Me. Who has access: Anyone.
- * 6. Copy the Web app URL into GOOGLE_SCRIPT_URL in feedback/index.html.
+ * AI STARTER PROGRAM – Feedback collection
+ * Deploy as a Web app: Execute as Me; access: Anyone.
+ * Creates a private response spreadsheet automatically on first visit.
  */
+const SHEET_NAME = "Feedback Responses";
+const PROPERTY_KEY = "AI_STARTER_FEEDBACK_SPREADSHEET_ID";
+
+function doGet() {
+  const sheet = getOrCreateSheet_();
+  const url = sheet.getParent().getUrl();
+  return HtmlService.createHtmlOutput(
+    '<!doctype html><html><body style="font:16px Arial;padding:32px">' +
+    '<h2>AI Starter Program feedback backend is ready</h2>' +
+    '<p>Your response spreadsheet has been created.</p>' +
+    '<p><a href="' + url + '" target="_blank">Open feedback response spreadsheet</a></p>' +
+    '<p>Copy this Web App URL ending in <code>/exec</code> into feedback/index.html in GitHub.</p>' +
+    '</body></html>'
+  ).setTitle("AI Starter Program – Setup");
+}
+
 function doPost(e) {
   try {
-    var raw = e && e.parameter && e.parameter.payload;
-    if (!raw) throw new Error("Missing payload");
-    var payload = JSON.parse(raw);
-    var answers = payload.answers || {};
-    var lock = LockService.getScriptLock();
-    lock.waitLock(10000);
-    try {
-      var ss = SpreadsheetApp.getActiveSpreadsheet();
-      var sheet = ss.getSheetByName("Responses") || ss.insertSheet("Responses");
-      var keys = Object.keys(answers);
-      var headers = ["Submitted At", "Form", "Participant Name", "Email", "Participant Category"].concat(keys);
-      if (sheet.getLastRow() === 0) {
-        sheet.appendRow(headers);
-      } else {
-        var existing = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-        headers.forEach(function(h) {
-          if (existing.indexOf(h) === -1) {
-            sheet.getRange(1, sheet.getLastColumn() + 1).setValue(h);
-            existing.push(h);
-          }
-        });
-      }
-      var currentHeaders = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-      var rowData = {
-        "Submitted At": payload.submittedAt || new Date().toISOString(),
-        "Form": payload.form || "AI STARTER PROGRAM Feedback",
-        "Participant Name": answers.name || "",
-        "Email": answers.email || "",
-        "Participant Category": answers.status || ""
-      };
-      keys.forEach(function(k) { rowData[k] = answers[k]; });
-      var row = currentHeaders.map(function(h) {
-        var value = rowData[h] === undefined ? "" : rowData[h];
-        if (Array.isArray(value)) value = value.join(", ");
-        value = String(value);
-        if (/^[=+\-@]/.test(value)) value = "'" + value;
-        return value;
-      });
-      sheet.appendRow(row);
-    } finally {
-      lock.releaseLock();
+    const raw = e && e.parameter && e.parameter.payload;
+    if (!raw || raw.length > 50000) throw new Error("Invalid or oversized submission.");
+    const payload = JSON.parse(raw);
+    if (!payload || !payload.answers || typeof payload.answers !== "object") {
+      throw new Error("Invalid submission.");
     }
-    return ContentService.createTextOutput(JSON.stringify({ok:true})).setMimeType(ContentService.MimeType.JSON);
+    const sheet = getOrCreateSheet_();
+    const answers = payload.answers;
+    const row = [
+      payload.submittedAt || new Date().toISOString(),
+      payload.form || "AI STARTER PROGRAM Feedback",
+      answers.name || "",
+      answers.email || "",
+      answers.status || "",
+      JSON.stringify(answers)
+    ];
+    sheet.appendRow(row);
+    return ContentService.createTextOutput(JSON.stringify({ok:true}))
+      .setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
-    return ContentService.createTextOutput(JSON.stringify({ok:false,error:String(err)})).setMimeType(ContentService.MimeType.JSON);
+    console.error(err);
+    return ContentService.createTextOutput(JSON.stringify({ok:false,error:String(err)}))
+      .setMimeType(ContentService.MimeType.JSON);
   }
 }
-function doGet() {
-  return ContentService.createTextOutput("AI STARTER PROGRAM feedback collector is running.");
+
+function getOrCreateSheet_() {
+  const props = PropertiesService.getScriptProperties();
+  let id = props.getProperty(PROPERTY_KEY);
+  let ss = null;
+  if (id) {
+    try { ss = SpreadsheetApp.openById(id); } catch (err) { ss = null; }
+  }
+  if (!ss) {
+    ss = SpreadsheetApp.create("AI STARTER PROGRAM – Feedback Responses");
+    props.setProperty(PROPERTY_KEY, ss.getId());
+  }
+  let sheet = ss.getSheetByName(SHEET_NAME);
+  if (!sheet) sheet = ss.insertSheet(SHEET_NAME);
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(["Submitted At", "Form", "Participant Name", "Email", "Participant Category", "All Answers (JSON)"]);
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
 }
