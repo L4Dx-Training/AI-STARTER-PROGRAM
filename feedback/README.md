@@ -1,46 +1,24 @@
 # AI STARTER PROGRAM – Feedback & Impact Survey
 
-A mobile-friendly feedback questionnaire for the AI STARTER PROGRAM.
+## Cloudflare Worker setup and cost
 
-## Files
-- \`index.html\`: Static survey UI.
-- \`Code.gs\`: Google Apps Script endpoint that writes responses to a Google Sheet.
+Cloudflare Workers Free is **$0** and includes 100,000 Worker requests per day and 10 ms CPU per invocation. This is normally sufficient for a short training feedback run. The free tier does not automatically upgrade to paid; requests stop working if the daily limit is exceeded. [Official pricing](https://developers.cloudflare.com/workers/platform/pricing/).
 
-## 1. Connect response storage (Google Sheets)
+1. In Cloudflare, open **Workers & Pages → Create Worker** and name it `l4dx-feedback-api`.
+2. Open **Edit Code**, replace the sample code with `worker.js` from this folder, and deploy.
+3. Under Worker **Settings → Variables and Secrets**, add secret `GITHUB_TOKEN`. Create a GitHub fine-grained token restricted to this repository with **Contents: Read and write** permission.
+4. Add these text variables:
+   - `GITHUB_OWNER` = `L4Dx-Training`
+   - `GITHUB_REPO` = `AI-STARTER-PROGRAM`
+   - `GITHUB_BRANCH` = `main`
+   - `ALLOWED_ORIGIN` = `https://l4dx-training.github.io`
+5. Copy the Worker URL.
+6. In `index.html`, replace `PASTE_YOUR_CLOUDFLARE_WORKER_URL_HERE` with your Worker URL and commit the change.
 
-GitHub Pages only hosts static files; it does not store form submissions. Connect the survey to a Google Sheet:
+## Publish the form
 
-1. Create a new Google Sheet, for example **AI STARTER PROGRAM - Feedback Responses**.
-2. In the sheet, select **Extensions → Apps Script**.
-3. Replace the editor contents with the code from [Code.gs](./Code.gs).
-4. Save the Apps Script project.
-5. Select **Deploy → New deployment**.
-6. Select type **Web app**.
-7. Set **Execute as** to **Me**.
-8. Set **Who has access** to **Anyone**. This is required for students to submit without signing in. Do not put confidential data in this sheet.
-9. Deploy and authorize the script.
-10. Copy the Web app URL ending in \`/exec\`.
-11. In \`index.html\`, replace \`PASTE_YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL_HERE\` in \`GOOGLE_SCRIPT_URL\` with the deployed URL.
-12. Commit the updated \`index.html\` to GitHub.
+In the GitHub repository, open **Settings → Pages → Build and deployment** and select **GitHub Actions** as the source. The workflow publishes this folder.
 
-The first submission creates a \`Responses\` tab and writes the survey responses as rows. Protect the response spreadsheet and share it only with authorized training administrators.
+## Response storage
 
-## 2. Publish with GitHub Pages
-
-1. Open the repository **Settings → Pages**.
-2. Under **Build and deployment → Source**, select **GitHub Actions**.
-3. The workflow in \`.github/workflows/deploy-feedback-pages.yml\` will publish the contents of this \`feedback\` folder.
-4. Push a change to \`feedback/**\` or run the workflow manually from the Actions tab.
-5. Once the workflow succeeds, the site will be available at:
-
-   \`https://l4dx-training.github.io/AI-STARTER-PROGRAM/\`
-
-If the repository already has a Pages site, check its current deployment configuration before changing it.
-
-## Privacy and response handling
-
-- Name and email are optional.
-- The form does not request passwords or sensitive personal information.
-- Anyone with the published form URL can submit a response.
-- The Google Apps Script endpoint is public so students can submit without Google sign-in. Protect the destination Sheet and review submissions for spam.
-- The browser uses a no-CORS form POST; the page confirms that the request was sent, but cannot read a server-side error response. Check the Google Sheet to verify receipt.
+Each submission is appended as one JSON record per line in `feedback.txt`. The file is public, as requested. Do not collect passwords, financial details, or other sensitive personal information.
