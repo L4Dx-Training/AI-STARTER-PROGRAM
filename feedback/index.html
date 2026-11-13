@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#101827">
+<title>AI STARTER PROGRAM | Feedback & Impact Survey</title>
+<style>
+:root{--ink:#172033;--muted:#64748b;--line:#e2e8f0;--paper:#f4f7fb;--brand:#4f46e5;--brand2:#0f766e;--white:#fff;--danger:#b91c1c}
+*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.55 Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+.hero{background:radial-gradient(circle at 85% 15%,#334b82 0,transparent 34%),linear-gradient(125deg,#101827,#172554 62%,#123c49);color:white;padding:42px 20px 34px}
+.hero-inner,.wrap{max-width:900px;margin:auto}.eyebrow{font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:#c7d2fe;font-weight:750}
+h1{font-size:clamp(28px,5vw,42px);line-height:1.08;margin:12px 0 10px;letter-spacing:-.035em}.hero p{max-width:700px;color:#e2e8f0;margin:0;font-size:16px}
+.hero-meta{display:flex;gap:10px;flex-wrap:wrap;margin-top:20px}.pill{border:1px solid #ffffff40;background:#ffffff12;border-radius:999px;padding:6px 11px;font-size:12px;color:#eef2ff}
+.wrap{padding:22px 16px 60px}.notice{background:#eef2ff;border:1px solid #c7d2fe;border-radius:14px;padding:14px 16px;margin-bottom:18px;color:#303b70}
+.progressbox{background:white;border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin-bottom:18px;position:sticky;top:8px;z-index:5;box-shadow:0 4px 18px #0f172a0a}
+.progress-head{display:flex;justify-content:space-between;gap:12px;font-size:12px;color:var(--muted);margin-bottom:8px}.track{height:7px;background:#e9edf5;border-radius:99px;overflow:hidden}.bar{height:100%;width:0;background:linear-gradient(90deg,var(--brand),#0d9488);transition:width .2s}
+section.card{background:white;border:1px solid var(--line);border-radius:18px;padding:22px;margin:18px 0;box-shadow:0 8px 24px #0f172a08}
+.section-head{display:flex;gap:13px;align-items:flex-start;margin-bottom:17px}.num{height:34px;width:34px;flex:0 0 34px;border-radius:11px;background:#eef2ff;color:var(--brand);display:grid;place-items:center;font-weight:800}.section-head h2{font-size:19px;line-height:1.2;margin:2px 0 4px}.section-head p{color:var(--muted);font-size:13px;margin:0}
+.field{padding:15px 0;border-top:1px solid #f0f2f6}.field:first-of-type{border-top:0}.field label.q{display:block;font-weight:650;margin-bottom:9px}.hint{color:var(--muted);font-size:12px;margin:-4px 0 10px}
+input[type=text],input[type=email],textarea,select{width:100%;border:1px solid #cbd5e1;border-radius:10px;padding:11px 12px;font:inherit;background:white;color:var(--ink);outline:none}
+textarea{min-height:82px;resize:vertical}input:focus,textarea:focus,select:focus{border-color:#818cf8;box-shadow:0 0 0 3px #6366f11a}
+.options{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px}.options label{display:flex;align-items:flex-start;gap:9px;border:1px solid #e2e8f0;border-radius:10px;padding:10px 11px;font-size:13px;cursor:pointer;min-height:42px}.options label:has(input:checked){border-color:#818cf8;background:#eef2ff}
+input[type=radio],input[type=checkbox]{accent-color:var(--brand);margin-top:3px}
+.scale{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:7px}.scale label{display:flex;flex-direction:column;align-items:center;gap:4px;border:1px solid #e2e8f0;border-radius:10px;padding:9px 4px;font-size:12px;cursor:pointer}.scale label:has(input:checked){background:#eef2ff;border-color:#818cf8;color:#3730a3;font-weight:700}.scale input{margin:0}
+.scale-caption{display:flex;justify-content:space-between;color:var(--muted);font-size:11px;margin-top:6px}
+.actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:22px}.submit{background:var(--brand);border:0;color:white;font-weight:750;font-size:15px;padding:13px 22px;border-radius:11px;cursor:pointer}.submit:hover{background:#4338ca}.submit:disabled{opacity:.6;cursor:wait}.secondary{border:1px solid #cbd5e1;background:white;color:var(--ink);padding:12px 16px;border-radius:11px;cursor:pointer}.small{font-size:12px;color:var(--muted)}.error{color:var(--danger);font-size:13px;margin-top:10px}.success{display:none;background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:14px;padding:18px;margin:18px 0}.footer{text-align:center;color:var(--muted);font-size:12px;padding:16px}
+@media(max-width:600px){.hero{padding:32px 18px}.wrap{padding:16px 11px 40px}section.card{padding:17px 14px;border-radius:14px}.options{grid-template-columns:1fr}.scale{gap:4px}.scale label{font-size:11px;padding:8px 2px}}
+</style>
+</head>
+<body>
+<header class="hero"><div class="hero-inner">
+<div class="eyebrow">L4DX Training · Learner feedback</div>
+<h1>AI STARTER PROGRAM</h1>
+<p><strong>Training Feedback & Impact Survey</strong><br>Thank you for being part of the program. Your honest feedback will help us improve the learning experience and understand the difference the training made to your technical confidence, career thinking and ideas.</p>
+<div class="hero-meta"><span class="pill">5–7 minutes</span><span class="pill">Honest feedback encouraged</span><span class="pill">Mobile friendly</span></div>
+</div></header>
+<main class="wrap">
+<div class="notice"><strong>We value honest responses.</strong> Please share both what worked well and what needs improvement. Name and email are optional. Your answers are used to evaluate and improve the training.</div>
+<div class="progressbox"><div class="progress-head"><span>Survey completion</span><span id="progressText">0% answered</span></div><div class="track"><div class="bar" id="progressBar"></div></div></div>
+<div id="success" class="success" role="status"><strong>Thank you!</strong><br>Your feedback has been submitted. We appreciate your time and contribution.</div>
+<form id="survey" novalidate>
+<section class="card"><div class="section-head"><div class="num">1</div><div><h2>Participant information</h2><p>Optional details to help us understand the learner profile.</p></div></div>
+<div class="field"><label class="q" for="name">Name (optional)</label><input id="name" name="name" type="text" placeholder="Your name"></div>
+<div class="field"><label class="q" for="email">Email (optional)</label><input id="email" name="email" type="email" placeholder="you@example.com"></div>
+<div class="field"><label class="q" for="status">Which best describes you? <span aria-hidden="true">*</span></label><div class="options">
+<label><input type="radio" name="status" value="Student / Fresher" required> Student / Fresher</label><label><input type="radio" name="status" value="Working Professional"> Working Professional</label><label><input type="radio" name="status" value="Career break / Returning to work"> Career break / Returning to work</label><label><input type="radio" name="status" value="Entrepreneur / Business owner"> Entrepreneur / Business owner</label><label><input type="radio" name="status" value="Other"> Other</label></div></div></section>
+
+<section class="card"><div class="section-head"><div class="num">2</div><div><h2>Training and class quality</h2><p>Rate each item from 1 (Poor) to 5 (Excellent).</p></div></div>
+<div id="qualityFields"></div></section>
+
+<section class="card"><div class="section-head"><div class="num">3</div><div><h2>Practical sessions and lab experience</h2><p>Tell us how effective the hands-on learning was.</p></div></div>
+<div id="labFields"></div></section>
+
+<section class="card"><div class="section-head"><div class="num">4</div><div><h2>Technical learning and usefulness</h2><p>How much do you agree? 1 (Strongly disagree) to 5 (Strongly agree).</p></div></div>
+<div id="learningFields"></div></section>
+
+<section class="card"><div class="section-head"><div class="num">5</div><div><h2>Change in perspective and mindset</h2><p>How much has the program changed the way you think? 1 (No change) to 5 (Significant change).</p></div></div>
+<div id="mindsetFields"></div>
+<div class="field"><label class="q">Before this program, how familiar were you with the possibilities of AI?</label><div class="options">
+<label><input type="radio" name="ai_before" value="Very familiar"> Very familiar</label><label><input type="radio" name="ai_before" value="Somewhat familiar"> Somewhat familiar</label><label><input type="radio" name="ai_before" value="Heard about AI, limited understanding"> Heard about AI, limited understanding</label><label><input type="radio" name="ai_before" value="Almost no understanding"> Almost no understanding</label></div></div>
+<div class="field"><label class="q">After this program, which statement best describes your understanding of AI?</label><div class="options">
+<label><input type="radio" name="ai_after" value="Understand concepts and can implement basic solutions"> I understand concepts and can implement basic solutions.</label><label><input type="radio" name="ai_after" value="Can independently build basic AI applications"> I can independently build basic AI applications.</label><label><input type="radio" name="ai_after" value="Can identify and design AI solutions for business problems"> I can identify and design AI solutions for business problems.</label><label><input type="radio" name="ai_after" value="Interested in advanced AI engineering"> I am interested in advanced AI engineering.</label><label><input type="radio" name="ai_after" value="Need more practical exposure"> I still need more practical exposure.</label></div></div></section>
+
+<section class="card"><div class="section-head"><div class="num">6</div><div><h2>Career and entrepreneurship impact</h2><p>How much do you agree? 1 (Strongly disagree) to 5 (Strongly agree).</p></div></div>
+<div id="careerFields"></div>
+<div class="field"><label class="q">Which opportunities are you now interested in? (Select all that apply.)</label><div class="options">
+<label><input type="checkbox" name="opportunities" value="Getting a job in IT"> Getting a job in IT</label><label><input type="checkbox" name="opportunities" value="Improving performance in current company"> Improving my performance in my current company</label><label><input type="checkbox" name="opportunities" value="Software / Cloud / AI Engineer"> Becoming a Software / Cloud / AI Engineer</label><label><input type="checkbox" name="opportunities" value="Building AI-powered applications"> Building AI-powered applications</label><label><input type="checkbox" name="opportunities" value="Starting a technology startup"> Starting my own technology startup</label><label><input type="checkbox" name="opportunities" value="Developing a product or SaaS business"> Developing a product or SaaS business</label><label><input type="checkbox" name="opportunities" value="Freelancing or consulting"> Freelancing or consulting</label><label><input type="checkbox" name="opportunities" value="Learning advanced AI technologies"> Learning advanced AI technologies</label></div></div>
+<div class="field"><label class="q">Has this program made you think of a business idea or product you would like to build using AI?</label><div class="options">
+<label><input type="radio" name="startup_idea" value="Yes, I already have an idea"> Yes, I already have an idea</label><label><input type="radio" name="startup_idea" value="Yes, exploring possibilities"> Yes, I am exploring possibilities</label><label><input type="radio" name="startup_idea" value="Maybe in the future"> Maybe, in the future</label><label><input type="radio" name="startup_idea" value="No"> No</label></div></div>
+</section>
+
+<section class="card"><div class="section-head"><div class="num">7</div><div><h2>Overall assessment</h2><p>Your overall evaluation of the program.</p></div></div>
+<div class="field"><label class="q">How would you rate the overall usefulness of this program?</label><div class="scale" data-name="usefulness" data-labels="1,2,3,4,5,6,7,8,9,10" data-count="10"></div><div class="scale-caption"><span>Not useful</span><span>Extremely useful</span></div></div>
+<div class="field"><label class="q">Would you recommend this program to friends or colleagues?</label><div class="options">
+<label><input type="radio" name="recommend" value="Definitely"> Definitely</label><label><input type="radio" name="recommend" value="Probably"> Probably</label><label><input type="radio" name="recommend" value="Not sure"> Not sure</label><label><input type="radio" name="recommend" value="Probably not"> Probably not</label><label><input type="radio" name="recommend" value="Definitely not"> Definitely not</label></div></div>
+<div class="field"><label class="q">Did the program meet your expectations?</label><div class="options">
+<label><input type="radio" name="expectations" value="Exceeded expectations"> Exceeded expectations</label><label><input type="radio" name="expectations" value="Met expectations"> Met expectations</label><label><input type="radio" name="expectations" value="Partially met expectations"> Partially met expectations</label><label><input type="radio" name="expectations" value="Did not meet expectations"> Did not meet expectations</label></div></div>
+</section>
+
+<section class="card"><div class="section-head"><div class="num">8</div><div><h2>Your suggestions</h2><p>Your written feedback is especially valuable. Please be candid.</p></div></div>
+<div class="field"><label class="q" for="most_valuable">What was the most valuable topic or practical exercise you experienced?</label><textarea id="most_valuable" name="most_valuable" placeholder="Share the topic, lab or moment that was most useful..."></textarea></div>
+<div class="field"><label class="q" for="career_difference">What is one thing you learned that could make a difference in your career or professional life?</label><textarea id="career_difference" name="career_difference"></textarea></div>
+<div class="field"><label class="q" for="trainer">What did you like most about the trainer's teaching methodology?</label><textarea id="trainer" name="trainer"></textarea></div>
+<div class="field"><label class="q" for="more_practice">Which topics need more practical coverage or additional time?</label><textarea id="more_practice" name="more_practice"></textarea></div>
+<div class="field"><label class="q" for="improvements">What improvements would you suggest for the labs, teaching methodology or training infrastructure?</label><textarea id="improvements" name="improvements"></textarea></div>
+<div class="field"><label class="q" for="one_change">If you could change one thing about this program, what would it be?</label><textarea id="one_change" name="one_change"></textarea></div>
+<div class="field"><label class="q" for="anything_else">Anything else you would like to share?</label><textarea id="anything_else" name="anything_else"></textarea></div>
+</section>
+<div id="formError" class="error" role="alert"></div>
+<div class="actions"><button class="submit" id="submitBtn" type="submit">Submit feedback</button><button class="secondary" type="reset">Clear responses</button><span class="small">Please review your answers before submitting.</span></div>
+</form>
+<div class="footer">AI STARTER PROGRAM · L4DX Training</div>
+</main>
+<script>
+/* Configure this after deploying the Google Apps Script backend. */
+const GOOGLE_SCRIPT_URL = "PASTE_YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL_HERE";
+
+const groups = {
+quality: [
+"Overall quality of the training sessions","Trainer's subject knowledge","Clarity of explanations","Ability to explain complex concepts simply","Relevance of topics covered","Pace of the training","Interaction and engagement during sessions","Opportunity to ask questions and clarify doubts"
+],
+lab: [
+"Quality of hands-on lab sessions","Relevance of practical exercises to the topics taught","Instructor assistance during practical implementation","Ability to complete practical exercises successfully","How well practicals demonstrated real-world scenarios","Usefulness of troubleshooting and debugging exercises","Confidence to implement similar solutions independently"
+],
+learning: [
+"I have a better understanding of how modern software applications are designed and developed.","I understand how different technologies and services integrate to build an application.","I have gained practical exposure to cloud and AI technologies.","I understand how AI can be integrated into real-world business applications.","I can identify opportunities where AI can solve practical problems.","I have a better understanding of the complete application development lifecycle.","I can apply at least some of the concepts learned during this program independently."
+],
+mindset: [
+"The way I look at software applications and how they are built has changed.","The way I look at Artificial Intelligence and its possibilities has changed.","My understanding of how AI can transform businesses and industries has changed.","My perspective on future technology and career opportunities has changed.","My confidence in learning and adopting new technologies has improved.","I now think more about building solutions rather than only using existing applications.","My interest in developing my own applications or products has increased."
+],
+career: [
+"I feel more confident about performing technical responsibilities in my current or future company.","I believe the skills gained will improve my employability.","I can see opportunities to apply AI in my current or future workplace.","I feel more confident participating in application development projects.","I believe I can independently develop a basic application with AI assistance.","This program has encouraged me to think about building my own startup or technology product.","I can identify business problems that could potentially be solved using AI.","I believe I have gained a foundation to explore entrepreneurship and product development."
+]
+};
+function renderScaleGroup(target, key, items, low, high, required=true){
+const root=document.getElementById(target);
+items.forEach((question,i)=>{
+const name=key+"_"+(i+1), field=document.createElement("div");field.className="field";
+const label=document.createElement("label");label.className="q";label.textContent=question;field.appendChild(label);
+const scale=document.createElement("div");scale.className="scale";
+for(let n=1;n<=5;n++){const l=document.createElement("label");const input=document.createElement("input");input.type="radio";input.name=name;input.value=String(n);if(required)input.required=true;const span=document.createElement("span");span.textContent=n;l.append(input,span);scale.appendChild(l)}
+field.appendChild(scale);const cap=document.createElement("div");cap.className="scale-caption";cap.innerHTML="<span>"+low+"</span><span>"+high+"</span>";field.appendChild(cap);root.appendChild(field);
+});
+}
+renderScaleGroup("qualityFields","quality",groups.quality,"Poor","Excellent");
+renderScaleGroup("labFields","lab",groups.lab,"Poor","Excellent");
+renderScaleGroup("learningFields","learning",groups.learning,"Strongly disagree","Strongly agree");
+renderScaleGroup("mindsetFields","mindset",groups.mindset,"No change","Significant change");
+renderScaleGroup("careerFields","career",groups.career,"Strongly disagree","Strongly agree");
+const ten=document.querySelector('[data-name="usefulness"]');
+for(let n=1;n<=10;n++){const l=document.createElement("label"),i=document.createElement("input"),s=document.createElement("span");i.type="radio";i.name="usefulness";i.value=String(n);i.required=true;s.textContent=n;l.append(i,s);ten.appendChild(l)}
+function updateProgress(){
+const required=[...document.querySelectorAll("#survey [required]")];const names=[...new Set(required.map(x=>x.name))];
+const done=names.filter(name=>{const el=document.querySelector('[name="'+name+'"]:checked');return !!el}).length;
+const pct=Math.round(done/Math.max(names.length,1)*100);document.getElementById("progressBar").style.width=pct+"%";document.getElementById("progressText").textContent=pct+"% required items answered";
+}
+document.getElementById("survey").addEventListener("change",updateProgress);updateProgress();
+function collectAnswers(form){
+const data={};const fd=new FormData(form);
+for(const [key,value] of fd.entries()){if(data[key]!==undefined){if(!Array.isArray(data[key]))data[key]=[data[key]];data[key].push(value)}else data[key]=value}
+return data;
+}
+document.getElementById("survey").addEventListener("submit",async event=>{
+event.preventDefault();const form=event.currentTarget,error=document.getElementById("formError"),button=document.getElementById("submitBtn");
+error.textContent="";
+if(!form.reportValidity()){error.textContent="Please complete the required rating questions and participant category.";return}
+if(GOOGLE_SCRIPT_URL.includes("PASTE_YOUR")){error.textContent="The feedback form is ready, but response storage has not been connected yet. Please contact the training administrator.";return}
+button.disabled=true;button.textContent="Submitting…";
+const payload={form:"AI STARTER PROGRAM Feedback & Impact Survey",submittedAt:new Date().toISOString(),answers:collectAnswers(form)};
+try{
+await fetch(GOOGLE_SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},body:new URLSearchParams({payload:JSON.stringify(payload)})});
+form.style.display="none";document.querySelector(".progressbox").style.display="none";document.getElementById("success").style.display="block";window.scrollTo({top:0,behavior:"smooth"});
+}catch(e){error.textContent="We could not send your response. Please check your internet connection and try again.";button.disabled=false;button.textContent="Submit feedback"}
+});
+document.getElementById("survey").addEventListener("reset",()=>setTimeout(updateProgress,0));
+</script>
+</body>
+</html>
