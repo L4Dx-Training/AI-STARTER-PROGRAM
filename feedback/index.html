@@ -150,8 +150,8 @@ button.disabled=true;button.textContent="Submitting…";
 const payload={form:"AI STARTER PROGRAM Feedback & Impact Survey",submittedAt:new Date().toISOString(),answers:collectAnswers(form)};
 try{
 // Apps Script web apps do not reliably expose cross-origin responses to GitHub Pages.
- // no-cors sends the simple text/plain POST without a browser preflight.
-await fetch(APPS_SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify(payload)});
+ // URL-encoded form data is a browser-simple request and Apps Script reads it as e.parameter.payload.
+await fetch(APPS_SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},body:new URLSearchParams({payload:JSON.stringify(payload)})});
 form.style.display="none";document.querySelector(".progressbox").style.display="none";document.getElementById("success").style.display="block";window.scrollTo({top:0,behavior:"smooth"});
 }catch(e){error.textContent="We could not save your response. "+(e.message || "Please check your internet connection and try again.");button.disabled=false;button.textContent="Submit feedback"}
 });
