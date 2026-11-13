@@ -93,8 +93,8 @@ input[type=radio],input[type=checkbox]{accent-color:var(--brand);margin-top:3px}
 <div class="footer">AI STARTER PROGRAM · L4DX Training</div>
 </main>
 <script>
-/* Configure this after deploying the Google Apps Script backend. */
-const WORKER_URL = "https://ai-starter-program.training-c08.workers.dev/";
+/* Paste the deployed Google Apps Script Web App URL here. */
+const APPS_SCRIPT_URL = "PASTE_YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL_HERE";
 
 const groups = {
 quality: [
@@ -145,13 +145,13 @@ document.getElementById("survey").addEventListener("submit",async event=>{
 event.preventDefault();const form=event.currentTarget,error=document.getElementById("formError"),button=document.getElementById("submitBtn");
 error.textContent="";
 if(!form.reportValidity()){error.textContent="Please complete the required rating questions and participant category.";return}
-if(WORKER_URL.includes("PASTE_YOUR")){error.textContent="The feedback form is ready, but response storage has not been connected yet. Please contact the training administrator.";return}
+if(APPS_SCRIPT_URL.includes("PASTE_YOUR")){error.textContent="The feedback form is not connected to its response sheet yet. Please contact the training administrator.";return}
 button.disabled=true;button.textContent="Submitting…";
 const payload={form:"AI STARTER PROGRAM Feedback & Impact Survey",submittedAt:new Date().toISOString(),answers:collectAnswers(form)};
 try{
-const response=await fetch(WORKER_URL,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
-const result=await response.json();
-if(!response.ok || !result.ok) throw new Error(result.error || "Submission failed");
+// Apps Script web apps do not reliably expose cross-origin responses to GitHub Pages.
+ // no-cors sends the simple text/plain POST without a browser preflight.
+await fetch(APPS_SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify(payload)});
 form.style.display="none";document.querySelector(".progressbox").style.display="none";document.getElementById("success").style.display="block";window.scrollTo({top:0,behavior:"smooth"});
 }catch(e){error.textContent="We could not save your response. "+(e.message || "Please check your internet connection and try again.");button.disabled=false;button.textContent="Submit feedback"}
 });
